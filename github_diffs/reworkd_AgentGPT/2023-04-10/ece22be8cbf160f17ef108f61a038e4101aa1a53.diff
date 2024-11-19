@@ -1,0 +1,77 @@
+diff --git a/src/components/AutonomousAgent.ts b/src/components/AutonomousAgent.ts
+index 997868a05e..eca27cef27 100644
+--- a/src/components/AutonomousAgent.ts
++++ b/src/components/AutonomousAgent.ts
+@@ -65,7 +65,8 @@ class AutonomousAgent {
+     }
+ 
+     this.numLoops += 1;
+-    if (this.numLoops >= 10) {
++    const maxLoops = this.customApiKey === "" ? 3 : 30;
++    if (this.numLoops > maxLoops) {
+       this.sendLoopMessage();
+       this.shutdown();
+       return;
+@@ -157,7 +158,7 @@ class AutonomousAgent {
+   sendLoopMessage() {
+     this.sendMessage({
+       type: "system",
+-      value: `We're sorry, because this is a demo, we cannot have our agents running for too long. Shutting down.`,
++      value: `We're sorry, because this is a demo, we cannot have our agents running for too long. Note, if you desire longer runs, please provide your own API key in Settings. Shutting down.`,
+     });
+   }
+ 
+diff --git a/src/components/SettingsDialog.tsx b/src/components/SettingsDialog.tsx
+index a62a1036ad..b701a66269 100644
+--- a/src/components/SettingsDialog.tsx
++++ b/src/components/SettingsDialog.tsx
+@@ -40,9 +40,10 @@ export default function SettingsDialog({
+           small team is able to provide for at the moment.
+         </p>
+         <p className="mb-3">
+-          Because of this, we momentarily require that users utilize their own
+-          OpenAI API key for AgentGPT. To do this, sign up for an OpenAI account
+-          and visit the following{" "}
++          Because of this, we momentarily ask that users utilize their own
++          OpenAI API key for AgentGPT. If you elect not to, your agent will not
++          be able to execute for very long. To do this, sign up for an OpenAI
++          account and visit the following{" "}
+           <a
+             href="https://platform.openai.com/account/api-keys"
+             className="text-blue-500"
+diff --git a/src/pages/index.tsx b/src/pages/index.tsx
+index 6ec2b7d261..932d78ce4d 100644
+--- a/src/pages/index.tsx
++++ b/src/pages/index.tsx
+@@ -146,12 +146,7 @@ const Home: NextPage = () => {
+ 
+             <div className="flex gap-2">
+               <Button
+-                disabled={
+-                  agent != null ||
+-                  name === "" ||
+-                  goalInput === "" ||
+-                  customApiKey === ""
+-                }
++                disabled={agent != null || name === "" || goalInput === ""}
+                 onClick={handleNewGoal}
+                 className="mt-10"
+               >
+diff --git a/src/utils/chain.ts b/src/utils/chain.ts
+index f63fa68fa9..8ae6f95797 100644
+--- a/src/utils/chain.ts
++++ b/src/utils/chain.ts
+@@ -4,10 +4,11 @@ import { LLMChain } from "langchain/chains";
+ 
+ export const createModel = (customApiKey: string) =>
+   new OpenAI({
+-    openAIApiKey: customApiKey,
++    openAIApiKey:
++      customApiKey === "" ? process.env.OPENAI_API_KEY : customApiKey,
+     temperature: 0.9,
+     modelName: "gpt-3.5-turbo",
+-    maxTokens: 500,
++    maxTokens: 300,
+   });
+ 
+ const startGoalPrompt = new PromptTemplate({

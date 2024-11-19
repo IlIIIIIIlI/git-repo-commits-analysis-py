@@ -1,0 +1,350 @@
+diff --git a/src/components/AutonomousAgent.ts b/src/components/AutonomousAgent.ts
+index bb44fa08fe..2ab3952766 100644
+--- a/src/components/AutonomousAgent.ts
++++ b/src/components/AutonomousAgent.ts
+@@ -5,6 +5,7 @@ class AutonomousAgent {
+   name: string;
+   goal: string;
+   tasks: string[] = [];
++  customApiKey: string;
+   isRunning = true;
+   sendMessage: (message: Message) => void;
+   shutdown: () => void;
+@@ -14,12 +15,14 @@ class AutonomousAgent {
+     name: string,
+     goal: string,
+     addMessage: (message: Message) => void,
+-    shutdown: () => void
++    shutdown: () => void,
++    customApiKey: string
+   ) {
+     this.name = name;
+     this.goal = goal;
+     this.sendMessage = addMessage;
+     this.shutdown = shutdown;
++    this.customApiKey = customApiKey;
+   }
+ 
+   async run() {
+@@ -36,7 +39,7 @@ class AutonomousAgent {
+     } catch (e) {
+       console.log(e);
+       this.sendErrorMessage(
+-        `ERROR retrieving initial tasks array. Please make your goal more clear or revise it such that it is within our model's policies to run. Shutting Down.`
++        `ERROR retrieving initial tasks array. Check your API key, make your goal more clear, or revise your goal such that it is within our model's policies to run. Shutting Down.`
+       );
+       this.shutdown();
+       return;
+@@ -49,6 +52,12 @@ class AutonomousAgent {
+     console.log(`Loop ${this.numLoops}`);
+     console.log(this.tasks);
+ 
++    if (!this.isRunning) {
++      this.sendManualShutdownMessage();
++      this.shutdown();
++      return;
++    }
++
+     if (this.tasks.length === 0) {
+       this.sendCompletedMessage();
+       this.shutdown();
+@@ -62,12 +71,6 @@ class AutonomousAgent {
+       return;
+     }
+ 
+-    if (!this.isRunning) {
+-      this.sendManualShutdownMessage();
+-      this.shutdown();
+-      return;
+-    }
+-
+     // Wait before starting
+     await new Promise((r) => setTimeout(r, 1000));
+ 
+@@ -110,7 +113,10 @@ class AutonomousAgent {
+   }
+ 
+   async getInitialTasks(): Promise<string[]> {
+-    const res = await axios.post(`/api/chain`, { goal: this.goal });
++    const res = await axios.post(`/api/chain`, {
++      customApiKey: this.customApiKey,
++      goal: this.goal,
++    });
+     // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access,@typescript-eslint/no-unsafe-argument
+     return res.data.tasks as string[];
+   }
+@@ -120,6 +126,7 @@ class AutonomousAgent {
+     result: string
+   ): Promise<string[]> {
+     const res = await axios.post(`/api/create`, {
++      customApiKey: this.customApiKey,
+       goal: this.goal,
+       tasks: this.tasks,
+       lastTask: currentTask,
+@@ -131,6 +138,7 @@ class AutonomousAgent {
+ 
+   async executeTask(task: string): Promise<string> {
+     const res = await axios.post(`/api/execute`, {
++      customApiKey: this.customApiKey,
+       goal: this.goal,
+       task: task,
+     });
+diff --git a/src/components/Drawer.tsx b/src/components/Drawer.tsx
+index a07506e3da..533e3979a0 100644
+--- a/src/components/Drawer.tsx
++++ b/src/components/Drawer.tsx
+@@ -1,6 +1,7 @@
+ import React, { useState } from "react";
+ import {
+   FaBars,
++  FaCog,
+   FaGithub,
+   FaQuestionCircle,
+   FaRobot,
+@@ -11,7 +12,13 @@ import FadeOut from "./motions/FadeOut";
+ import { AnimatePresence } from "framer-motion";
+ import clsx from "clsx";
+ 
+-const Drawer = ({ handleHelp }: { handleHelp: () => void }) => {
++const Drawer = ({
++  showHelp,
++  showSettings,
++}: {
++  showHelp: () => void;
++  showSettings: () => void;
++}) => {
+   const [showDrawer, setShowDrawer] = useState(false);
+   const [agents, setAgents] = React.useState<string[]>([]);
+ 
+@@ -38,7 +45,7 @@ const Drawer = ({ handleHelp }: { handleHelp: () => void }) => {
+         )}
+       >
+         <div className="flex flex-col gap-1 overflow-hidden">
+-          <div className="mb-2 flex items-center justify-center gap-2">
++          <div className="mb-2 flex justify-center gap-2">
+             <DrawerItem
+               className="flex-grow"
+               icon={<BiPlus />}
+@@ -79,8 +86,9 @@ const Drawer = ({ handleHelp }: { handleHelp: () => void }) => {
+           <DrawerItem
+             icon={<FaQuestionCircle />}
+             text="Help"
+-            onClick={handleHelp}
++            onClick={showHelp}
+           />
++          <DrawerItem icon={<FaCog />} text="Settings" onClick={showSettings} />
+           <DrawerItem
+             icon={<FaTwitter />}
+             text="Twitter"
+diff --git a/src/pages/api/chain.ts b/src/pages/api/chain.ts
+index 2c7e284351..3729bd9832 100644
+--- a/src/pages/api/chain.ts
++++ b/src/pages/api/chain.ts
+@@ -1,8 +1,9 @@
+ import type { NextApiRequest, NextApiResponse } from "next";
+-import { extractArray, startGoalAgent } from "../../utils/chain";
++import { createModel, extractArray, startGoalAgent } from "../../utils/chain";
+ 
+ export interface ChainAPIRequest extends NextApiRequest {
+   body: {
++    customApiKey: string;
+     goal: string;
+   };
+ }
+@@ -15,7 +16,8 @@ export default async function handler(
+   req: ChainAPIRequest,
+   res: ChainAPIResponse
+ ) {
+-  const completion = await startGoalAgent(req.body.goal);
++  const model = createModel(req.body.customApiKey);
++  const completion = await startGoalAgent(model, req.body.goal);
+   console.log(completion.text);
+   // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+   res.status(200).json({ tasks: extractArray(completion.text) });
+diff --git a/src/pages/api/create.ts b/src/pages/api/create.ts
+index 6fa9d504e6..2164dbc668 100644
+--- a/src/pages/api/create.ts
++++ b/src/pages/api/create.ts
+@@ -1,9 +1,15 @@
+-import { executeCreateTaskAgent, extractArray } from "../../utils/chain";
+ import type { NextApiRequest } from "next";
+ import type { NextApiResponse } from "next";
+ 
++import {
++  createModel,
++  executeCreateTaskAgent,
++  extractArray,
++} from "../../utils/chain";
++
+ export interface CreateTaskAPIRequest extends NextApiRequest {
+   body: {
++    customApiKey: string;
+     goal: string;
+     tasks: string[];
+     lastTask: string;
+@@ -22,6 +28,7 @@ export default async function handler(
+   res: CreateTaskAPIResponse
+ ) {
+   const completion = await executeCreateTaskAgent(
++    createModel(req.body.customApiKey),
+     req.body.goal,
+     req.body.tasks,
+     req.body.lastTask,
+@@ -29,5 +36,5 @@ export default async function handler(
+   );
+   console.log(completion.text);
+   // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+-  res.status(200).json({ tasks: extractArray(completion.text) });
++  return res.status(200).json({ tasks: extractArray(completion.text) });
+ }
+diff --git a/src/pages/api/execute.ts b/src/pages/api/execute.ts
+index 343a52bf2a..abcf97a059 100644
+--- a/src/pages/api/execute.ts
++++ b/src/pages/api/execute.ts
+@@ -1,9 +1,10 @@
+-import { executeTaskAgent } from "../../utils/chain";
+ import type { NextApiRequest } from "next";
+ import type { NextApiResponse } from "next";
++import { createModel, executeTaskAgent } from "../../utils/chain";
+ 
+ export interface ExecuteAPIRequest extends NextApiRequest {
+   body: {
++    customApiKey: string;
+     goal: string;
+     task: string;
+   };
+@@ -19,7 +20,11 @@ export default async function handler(
+   req: ExecuteAPIRequest,
+   res: ExecuteAPIResponse
+ ) {
+-  const completion = await executeTaskAgent(req.body.goal, req.body.task);
++  const completion = await executeTaskAgent(
++    createModel(req.body.customApiKey),
++    req.body.goal,
++    req.body.task
++  );
+   console.log(completion.text);
+   res.status(200).json({ response: completion.text as string });
+ }
+diff --git a/src/pages/index.tsx b/src/pages/index.tsx
+index 584dfd97e5..6ec2b7d261 100644
+--- a/src/pages/index.tsx
++++ b/src/pages/index.tsx
+@@ -19,7 +19,7 @@ const Home: NextPage = () => {
+   const [name, setName] = React.useState<string>("");
+   const [goalInput, setGoalInput] = React.useState<string>("");
+   const [agent, setAgent] = React.useState<AutonomousAgent | null>(null);
+-  const [customAPIKey, setCustomAPIKey] = React.useState<string>("");
++  const [customApiKey, setCustomApiKey] = React.useState<string>("");
+   const [shouldAgentStop, setShouldAgentStop] = React.useState(false);
+ 
+   const [messages, setMessages] = React.useState<Message[]>([]);
+@@ -28,14 +28,17 @@ const Home: NextPage = () => {
+   const [showSettingsDialog, setShowSettingsDialog] = React.useState(false);
+ 
+   useEffect(() => {
+-    const key = "agentgpt-modal-opened";
++    const key = "agentgpt-modal-opened-new";
+     const savedModalData = localStorage.getItem(key);
+-    if (savedModalData == null) {
++
++    // Momentarily always run
++    if (true) {
+       setTimeout(() => {
+-        setShowHelpDialog(true);
+-      }, 1700);
++        setShowSettingsDialog(true);
++      }, 1500);
+     }
+-    localStorage.setItem(key, JSON.stringify(true));
++
++    // localStorage.setItem(key, JSON.stringify(true));
+   }, []);
+ 
+   useEffect(() => {
+@@ -52,7 +55,7 @@ const Home: NextPage = () => {
+       goalInput,
+       addMessage,
+       () => setAgent(null),
+-      customAPIKey
++      customApiKey
+     );
+     setAgent(agent);
+     agent.run().then(console.log).catch(console.error);
+@@ -70,8 +73,8 @@ const Home: NextPage = () => {
+         close={() => setShowHelpDialog(false)}
+       />
+       <SettingsDialog
+-        customApiKey={customAPIKey}
+-        setCustomApiKey={setCustomAPIKey}
++        customApiKey={customApiKey}
++        setCustomApiKey={setCustomApiKey}
+         show={showSettingsDialog}
+         close={() => setShowSettingsDialog(false)}
+       />
+@@ -143,7 +146,12 @@ const Home: NextPage = () => {
+ 
+             <div className="flex gap-2">
+               <Button
+-                disabled={agent != null || name === "" || goalInput === ""}
++                disabled={
++                  agent != null ||
++                  name === "" ||
++                  goalInput === "" ||
++                  customApiKey === ""
++                }
+                 onClick={handleNewGoal}
+                 className="mt-10"
+               >
+diff --git a/src/utils/chain.ts b/src/utils/chain.ts
+index 6b6f55b298..f63fa68fa9 100644
+--- a/src/utils/chain.ts
++++ b/src/utils/chain.ts
+@@ -2,18 +2,20 @@ import { OpenAI } from "langchain";
+ import { PromptTemplate } from "langchain/prompts";
+ import { LLMChain } from "langchain/chains";
+ 
+-const model = new OpenAI({
+-  openAIApiKey: process.env.OPENAI_API_KEY,
+-  temperature: 0.9,
+-  modelName: "gpt-3.5-turbo",
+-});
++export const createModel = (customApiKey: string) =>
++  new OpenAI({
++    openAIApiKey: customApiKey,
++    temperature: 0.9,
++    modelName: "gpt-3.5-turbo",
++    maxTokens: 500,
++  });
+ 
+ const startGoalPrompt = new PromptTemplate({
+   template:
+     "You are an autonomous task creation AI called AgentGPT. You have the following objective `{goal}`. Create a list of zero to three tasks to be completed by your AI system such that your goal is more closely reached or completely reached. Return the response as an array of strings that can be used in JSON.parse()",
+   inputVariables: ["goal"],
+ });
+-export const startGoalAgent = async (goal: string) => {
++export const startGoalAgent = async (model: OpenAI, goal: string) => {
+   return await new LLMChain({ llm: model, prompt: startGoalPrompt }).call({
+     goal,
+   });
+@@ -24,7 +26,11 @@ const executeTaskPrompt = new PromptTemplate({
+     "You are an autonomous task execution AI called AgentGPT. You have the following objective `{goal}`. You have the following tasks `{task}`. Execute the task and return the response as a string.",
+   inputVariables: ["goal", "task"],
+ });
+-export const executeTaskAgent = async (goal: string, task: string) => {
++export const executeTaskAgent = async (
++  model: OpenAI,
++  goal: string,
++  task: string
++) => {
+   return await new LLMChain({ llm: model, prompt: executeTaskPrompt }).call({
+     goal,
+     task,
+@@ -37,6 +43,7 @@ const createTaskPrompt = new PromptTemplate({
+   inputVariables: ["goal", "tasks", "lastTask", "result"],
+ });
+ export const executeCreateTaskAgent = async (
++  model: OpenAI,
+   goal: string,
+   tasks: string[],
+   lastTask: string,

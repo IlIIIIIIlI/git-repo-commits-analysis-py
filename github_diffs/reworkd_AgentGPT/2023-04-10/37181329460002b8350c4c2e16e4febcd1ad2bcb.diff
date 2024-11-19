@@ -1,0 +1,361 @@
+diff --git a/src/components/Dialog.tsx b/src/components/Dialog.tsx
+index a2c1967ac8..9b510477f0 100644
+--- a/src/components/Dialog.tsx
++++ b/src/components/Dialog.tsx
+@@ -1,30 +1,36 @@
+ import React from "react";
+ import Button from "./Button";
+-import { FaGithub, FaTwitter } from "react-icons/fa";
+ 
+ export default function Dialog({
+-  showModal,
+-  setShowModal,
++  header,
++  children,
++  isShown,
++  close,
++  footerButton,
+ }: {
+-  showModal: boolean;
+-  setShowModal: (showModal: boolean) => void;
++  header: React.ReactNode;
++  children: React.ReactNode;
++  isShown: boolean;
++  close: () => void;
++  footerButton?: React.ReactNode;
+ }) {
+   return (
+     <>
+-      {showModal ? (
++      {isShown ? (
+         <>
+           <div
+-            className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto overflow-x-hidden bg-black/70 p-3 font-mono text-white outline-none transition-all transition-all focus:outline-none"
+-            onClick={() => setShowModal(false)}
++            className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto overflow-x-hidden bg-black/70 p-3 font-mono text-white outline-none transition-all"
++            onClick={close}
+           >
+             <div className="relative mx-auto my-6 w-auto max-w-3xl rounded-lg border-2 border-zinc-600">
+               {/*content*/}
+-              <div className="relative z-50 flex w-full flex-col rounded-lg border-0 bg-[#3a3a3a] shadow-lg outline-none focus:outline-none">
++              <div
++                className="relative z-50 flex w-full flex-col rounded-lg border-0 bg-[#3a3a3a] shadow-lg outline-none focus:outline-none"
++                onClick={(e) => e.stopPropagation()} // Avoid closing the modal
++              >
+                 {/*header*/}
+                 <div className="flex items-start justify-between rounded-t border-b-2 border-solid border-white/20 p-5">
+-                  <h3 className="font-mono text-3xl font-semibold">
+-                    Welcome to AgentGPT 🤖
+-                  </h3>
++                  <h3 className="font-mono text-3xl font-semibold">{header}</h3>
+                   <button className="float-right ml-auto border-0 bg-transparent p-1 text-3xl font-semibold leading-none opacity-5 outline-none focus:outline-none">
+                     <span className="block h-6 w-6 bg-transparent text-2xl opacity-5 outline-none focus:outline-none">
+                       ×
+@@ -33,52 +39,17 @@ export default function Dialog({
+                 </div>
+                 {/*body*/}
+                 <div className="text-md relative my-3 flex-auto p-3 leading-relaxed">
+-                  <p>
+-                    <strong>AgentGPT</strong> allows you to configure and deploy
+-                    Autonomous AI agents. Name your own custom AI and have it
+-                    embark on any goal imaginable. It will attempt to reach the
+-                    goal by thinking of tasks to do, executing them, and
+-                    learning from the results 🚀.
+-                  </p>
+-                  <div>
+-                    <br />
+-                    This platform is currently in beta, we are currently working
+-                    on:
+-                    <ul className="ml-5 list-inside list-disc">
+-                      <li>Long term memory 🧠</li>
+-                      <li>Web browsing 🌐</li>
+-                      <li>Interaction with websites and people 👨‍👩‍👦</li>
+-                    </ul>
+-                    <p className="mt-2">Follow the journey below:</p>
+-                  </div>
+-                  <div className="mt-4 flex w-full items-center justify-center gap-5">
+-                    <div
+-                      className="cursor-pointer rounded-full bg-black/30 p-3 hover:bg-black/70"
+-                      onClick={() =>
+-                        window.open(
+-                          "https://twitter.com/asimdotshrestha/status/1644883727707959296",
+-                          "_blank"
+-                        )
+-                      }
+-                    >
+-                      <FaTwitter size={30} />
+-                    </div>
+-                    <div
+-                      className="cursor-pointer rounded-full bg-black/30 p-3 hover:bg-black/70"
+-                      onClick={() =>
+-                        window.open(
+-                          "https://github.com/reworkd/AgentGPT",
+-                          "_blank"
+-                        )
+-                      }
+-                    >
+-                      <FaGithub size={30} />
+-                    </div>
+-                  </div>
++                  {children}
+                 </div>
+                 {/*footer*/}
+-                <div className="flex items-center justify-end rounded-b border-t-2 border-solid border-white/20 p-2">
+-                  <Button onClick={() => setShowModal(false)}>Close</Button>
++                <div className="flex items-center justify-end gap-2 rounded-b border-t-2 border-solid border-white/20 p-2">
++                  <Button
++                    enabledClassName="bg-yellow-600 hover:bg-yellow-500"
++                    onClick={close}
++                  >
++                    Close
++                  </Button>
++                  {footerButton}
+                 </div>
+               </div>
+             </div>
+diff --git a/src/components/HelpDialog.tsx b/src/components/HelpDialog.tsx
+new file mode 100644
+index 0000000000..100aeac45d
+--- /dev/null
++++ b/src/components/HelpDialog.tsx
+@@ -0,0 +1,56 @@
++import React from "react";
++import { FaGithub, FaTwitter } from "react-icons/fa";
++import Dialog from "./Dialog";
++
++export default function HelpDialog({
++  show,
++  close,
++}: {
++  show: boolean;
++  close: () => void;
++}) {
++  return (
++    <Dialog header="Welcome to AgentGPT 🤖" isShown={show} close={close}>
++      <div className="text-md relative flex-auto p-2 leading-relaxed">
++        <p>
++          <strong>AgentGPT</strong> allows you to configure and deploy
++          Autonomous AI agents. Name your custom AI and have it embark on any
++          goal imaginable. It will attempt to reach the goal by thinking of
++          tasks to do, executing them, and learning from the results 🚀
++        </p>
++        <div>
++          <br />
++          This platform is currently in beta, we are currently working on:
++          <ul className="ml-5 list-inside list-disc">
++            <li>Long term memory 🧠</li>
++            <li>Web browsing 🌐</li>
++            <li>Interaction with websites and people 👨‍👩‍👦</li>
++          </ul>
++          <br />
++          <p className="mt-2">Follow the journey below:</p>
++        </div>
++        <div className="mt-4 flex w-full items-center justify-center gap-5">
++          <div
++            className="cursor-pointer rounded-full bg-black/30 p-3 hover:bg-black/70"
++            onClick={() =>
++              window.open(
++                "https://twitter.com/asimdotshrestha/status/1644883727707959296",
++                "_blank"
++              )
++            }
++          >
++            <FaTwitter size={30} />
++          </div>
++          <div
++            className="cursor-pointer rounded-full bg-black/30 p-3 hover:bg-black/70"
++            onClick={() =>
++              window.open("https://github.com/reworkd/AgentGPT", "_blank")
++            }
++          >
++            <FaGithub size={30} />
++          </div>
++        </div>
++      </div>
++    </Dialog>
++  );
++}
+diff --git a/src/components/Input.tsx b/src/components/Input.tsx
+index 9ce4f1f475..6062a13b1c 100644
+--- a/src/components/Input.tsx
++++ b/src/components/Input.tsx
+@@ -17,7 +17,7 @@ const Input = ({
+   disabled,
+ }: InputProps) => {
+   return (
+-    <div className="z-10 flex w-full items-center rounded-xl bg-[#3a3a3a] font-mono text-lg text-white/75 shadow-2xl">
++    <div className="z-10 flex w-full items-center rounded-xl bg-[#3a3a3a] font-mono text-lg text-white/75 shadow-xl">
+       {left && (
+         <div className="center flex items-center rounded-xl rounded-r-none border-[2px] border-r-0 border-white/10 px-5 py-3 text-lg font-semibold tracking-wider transition-all">
+           {left}
+diff --git a/src/components/SettingsDialog.tsx b/src/components/SettingsDialog.tsx
+new file mode 100644
+index 0000000000..a62a1036ad
+--- /dev/null
++++ b/src/components/SettingsDialog.tsx
+@@ -0,0 +1,67 @@
++import React from "react";
++import Button from "./Button";
++import { FaKey } from "react-icons/fa";
++import Dialog from "./Dialog";
++import Input from "./Input";
++
++export default function SettingsDialog({
++  show,
++  close,
++  customApiKey,
++  setCustomApiKey,
++}: {
++  show: boolean;
++  close: () => void;
++  customApiKey: string;
++  setCustomApiKey: (key: string) => void;
++}) {
++  const [key, setKey] = React.useState<string>(customApiKey);
++
++  const handleClose = () => {
++    setKey(customApiKey);
++    close();
++  };
++
++  const handleSave = () => {
++    setCustomApiKey(key);
++    close();
++  };
++
++  return (
++    <Dialog
++      header="Settings ⚙"
++      isShown={show}
++      close={handleClose}
++      footerButton={<Button onClick={handleSave}>Save</Button>}
++    >
++      <div className="text-md relative flex-auto p-2 leading-relaxed">
++        <p className="mb-3">
++          Welcome to AgentGPT! We&apos;re receiving traffic far higher than our
++          small team is able to provide for at the moment.
++        </p>
++        <p className="mb-3">
++          Because of this, we momentarily require that users utilize their own
++          OpenAI API key for AgentGPT. To do this, sign up for an OpenAI account
++          and visit the following{" "}
++          <a
++            href="https://platform.openai.com/account/api-keys"
++            className="text-blue-500"
++          >
++            link.
++          </a>
++        </p>
++        <Input
++          left={
++            <>
++              <FaKey />
++              <span className="ml-2">Key:</span>
++            </>
++          }
++          placeholder={"sk-..."}
++          value={key}
++          onChange={(e) => setKey(e.target.value)}
++        />
++      </div>
++    </Dialog>
++  );
++}
+diff --git a/src/pages/index.tsx b/src/pages/index.tsx
+index 0975d6f541..584dfd97e5 100644
+--- a/src/pages/index.tsx
++++ b/src/pages/index.tsx
+@@ -12,24 +12,27 @@ import PopIn from "../components/motions/popin";
+ import { VscLoading } from "react-icons/vsc";
+ import AutonomousAgent from "../components/AutonomousAgent";
+ import Expand from "../components/motions/expand";
+-import Dialog from "../components/Dialog";
++import HelpDialog from "../components/HelpDialog";
++import SettingsDialog from "../components/SettingsDialog";
+ 
+ const Home: NextPage = () => {
+   const [name, setName] = React.useState<string>("");
+   const [goalInput, setGoalInput] = React.useState<string>("");
+   const [agent, setAgent] = React.useState<AutonomousAgent | null>(null);
+-  const [stoppingAgent, setStoppingAgent] = React.useState(false);
++  const [customAPIKey, setCustomAPIKey] = React.useState<string>("");
++  const [shouldAgentStop, setShouldAgentStop] = React.useState(false);
+ 
+   const [messages, setMessages] = React.useState<Message[]>([]);
+ 
+-  const [showModal, setShowModal] = React.useState(false);
++  const [showHelpDialog, setShowHelpDialog] = React.useState(false);
++  const [showSettingsDialog, setShowSettingsDialog] = React.useState(false);
+ 
+   useEffect(() => {
+     const key = "agentgpt-modal-opened";
+     const savedModalData = localStorage.getItem(key);
+     if (savedModalData == null) {
+       setTimeout(() => {
+-        setShowModal(true);
++        setShowHelpDialog(true);
+       }, 1700);
+     }
+     localStorage.setItem(key, JSON.stringify(true));
+@@ -37,30 +40,46 @@ const Home: NextPage = () => {
+ 
+   useEffect(() => {
+     if (agent == null) {
+-      setStoppingAgent(false);
++      setShouldAgentStop(false);
+     }
+   }, [agent]);
+ 
+   const handleNewGoal = () => {
+     const addMessage = (message: Message) =>
+       setMessages((prev) => [...prev, message]);
+-    const agent = new AutonomousAgent(name, goalInput, addMessage, () =>
+-      setAgent(null)
++    const agent = new AutonomousAgent(
++      name,
++      goalInput,
++      addMessage,
++      () => setAgent(null),
++      customAPIKey
+     );
+     setAgent(agent);
+     agent.run().then(console.log).catch(console.error);
+   };
+ 
+   const handleStopAgent = () => {
+-    setStoppingAgent(true);
++    setShouldAgentStop(true);
+     agent?.stopAgent();
+   };
+ 
+   return (
+     <DefaultLayout>
+-      <Dialog showModal={showModal} setShowModal={setShowModal} />
++      <HelpDialog
++        show={showHelpDialog}
++        close={() => setShowHelpDialog(false)}
++      />
++      <SettingsDialog
++        customApiKey={customAPIKey}
++        setCustomApiKey={setCustomAPIKey}
++        show={showSettingsDialog}
++        close={() => setShowSettingsDialog(false)}
++      />
+       <main className="flex h-screen w-screen flex-row">
+-        <Drawer handleHelp={() => setShowModal(true)} />
++        <Drawer
++          showHelp={() => setShowHelpDialog(true)}
++          showSettings={() => setShowSettingsDialog(true)}
++        />
+         <div
+           id="content"
+           className="z-10 flex h-screen w-full items-center justify-center p-2 px-2 sm:px-4 md:px-10"
+@@ -144,7 +163,7 @@ const Home: NextPage = () => {
+                 className="mt-10"
+                 enabledClassName={"bg-red-600 hover:bg-red-400"}
+               >
+-                {stoppingAgent ? (
++                {shouldAgentStop ? (
+                   <>
+                     <VscLoading className="animate-spin" size={20} />
+                     <span className="ml-2">Stopping</span>

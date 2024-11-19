@@ -1,0 +1,35 @@
+diff --git a/src/components/Button.tsx b/src/components/Button.tsx
+index be4bc02224..685af26fbf 100644
+--- a/src/components/Button.tsx
++++ b/src/components/Button.tsx
+@@ -33,7 +33,7 @@ const Button = forwardRef(
+         type={props.type}
+         disabled={loading || props.disabled}
+         className={clsx(
+-          "text-gray/50 rounded-lg border-[2px] border-white/30 px-10 py-3 font-bold transition-all",
++          "text-gray/50 rounded-lg border-[2px] border-white/30 px-5 py-3 font-bold transition-all sm:px-10",
+           props.disabled
+             ? " cursor-not-allowed border-white/10 bg-zinc-900 text-white/30"
+             : ` mou cursor-pointer bg-[#1E88E5]/70 text-white/80 hover:border-white/80 hover:bg-[#0084f7] hover:text-white hover:shadow-2xl ${
+diff --git a/src/pages/index.tsx b/src/pages/index.tsx
+index ec931feac2..479d960440 100644
+--- a/src/pages/index.tsx
++++ b/src/pages/index.tsx
+@@ -133,7 +133,7 @@ const Home: NextPage = () => {
+                 ) : (
+                   <>
+                     <VscLoading className="animate-spin" size={20} />
+-                    <span className="ml-2">Agent running</span>
++                    <span className="ml-2">Running</span>
+                   </>
+                 )}
+               </Button>
+@@ -147,7 +147,7 @@ const Home: NextPage = () => {
+                 {stoppingAgent ? (
+                   <>
+                     <VscLoading className="animate-spin" size={20} />
+-                    <span className="ml-2">Stopping agent</span>
++                    <span className="ml-2">Stopping</span>
+                   </>
+                 ) : (
+                   "Stop agent"

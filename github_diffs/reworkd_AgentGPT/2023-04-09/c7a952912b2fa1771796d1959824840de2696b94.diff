@@ -1,0 +1,75 @@
+diff --git a/public/banner.png b/public/banner.png
+index 422039aa2d..f4e0b93f93 100644
+Binary files a/public/banner.png and b/public/banner.png differ
+diff --git a/src/components/Dialog.tsx b/src/components/Dialog.tsx
+index bfb095473f..5ea4da45d8 100644
+--- a/src/components/Dialog.tsx
++++ b/src/components/Dialog.tsx
+@@ -14,21 +14,18 @@ export default function Dialog({
+       {showModal ? (
+         <>
+           <div
+-            className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overflow-x-hidden bg-black/70 p-3 font-mono text-white outline-none transition-all transition-all focus:outline-none"
++            className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto overflow-x-hidden bg-black/70 p-3 font-mono text-white outline-none transition-all transition-all focus:outline-none"
+             onClick={() => setShowModal(false)}
+           >
+             <div className="relative mx-auto my-6 w-auto max-w-3xl rounded-lg border-2 border-zinc-600">
+               {/*content*/}
+-              <div className="relative flex w-full flex-col rounded-lg border-0 bg-[#3a3a3a] shadow-lg outline-none focus:outline-none">
++              <div className="relative z-50 flex w-full flex-col rounded-lg border-0 bg-[#3a3a3a] shadow-lg outline-none focus:outline-none">
+                 {/*header*/}
+                 <div className="flex items-start justify-between rounded-t border-b-2 border-solid border-white/20 p-5">
+                   <h3 className="font-mono text-3xl font-semibold">
+                     Welcome to AgentGPT 🤖
+                   </h3>
+-                  <button
+-                    className="float-right ml-auto border-0 bg-transparent p-1 text-3xl font-semibold leading-none opacity-5 outline-none focus:outline-none"
+-                    onClick={() => setShowModal(false)}
+-                  >
++                  <button className="float-right ml-auto border-0 bg-transparent p-1 text-3xl font-semibold leading-none opacity-5 outline-none focus:outline-none">
+                     <span className="block h-6 w-6 bg-transparent text-2xl opacity-5 outline-none focus:outline-none">
+                       ×
+                     </span>
+diff --git a/src/layout/default.tsx b/src/layout/default.tsx
+index ce4be410bd..79d2bfef1f 100644
+--- a/src/layout/default.tsx
++++ b/src/layout/default.tsx
+@@ -14,21 +14,33 @@ const DefaultLayout = (props: LayoutProps) => {
+       <Head>
+         <title>AgentGPT</title>
+         <meta name="description" content={description} />
+-        <link rel="icon" href="/favicon.ico" />
+-        <meta property="og:url" content="https://agentgpt.reworkd.ai/" />
+-        <meta property="og:type" content="website" />
++        <meta name="twitter:site" content="@AgentGPT" />
++        <meta name="twitter:card" content="summary_large_image" />
++        <meta name="twitter:title" content="AgentGPT 🤖" />
++        <meta name="twitter:description" content={description} />
+         <meta
+-          property="og:description"
+-          content="Assemble, configure, and deploy autonomous AI Agents in your browser."
++          name="twitter:image"
++          content="https://agentgpt.reworkd.ai/banner.png"
+         />
++        <meta name="twitter:image:width" content="1280" />
++        <meta name="twitter:image:height" content="640" />
+         <meta
+           property="og:title"
+           content="AgentGPT: Autonomous AI in your browser 🤖"
+         />
++        <meta
++          property="og:description"
++          content="Assemble, configure, and deploy autonomous AI Agents in your browser."
++        />
++        <meta property="og:url" content="https://agentgpt.reworkd.ai/" />
+         <meta
+           property="og:image"
+           content="https://agentgpt.reworkd.ai/banner.png"
+         />
++        <meta property="og:image:width" content="1280" />
++        <meta property="og:image:height" content="640" />
++        <meta property="og:type" content="website" />
++        <link rel="icon" href="/favicon.ico" />
+       </Head>
+       <DottedGridBackground>{props.children}</DottedGridBackground>
+     </div>

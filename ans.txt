@@ -1,0 +1,1299 @@
+// github_diff_analyzer.py
+# github_diff_analyzer.py
+import json
+import logging
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Dict, Generator, List, Optional
+
+import requests
+from tqdm import tqdm
+
+from config import Settings
+from models import CommitDiff, CommitStats
+
+class GitHubDiffAnalyzer:
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        token = settings.github_token.strip()
+        self.headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        self.base_url = "https://api.github.com"
+        self.setup_logging()
+
+    def setup_logging(self):
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(asctime)s - %(levelname)s - %(message)s",
+            handlers=[
+                logging.FileHandler("github_diff_analyzer.log"),
+                logging.StreamHandler(),
+            ],
+        )
+        self.logger = logging.getLogger(__name__)
+
+    def get_commit_diff(self, owner: str, repo: str, commit_sha: str) -> Optional[str]:
+        """获取特定commit的diff内容"""
+        url = f"{self.base_url}/repos/{owner}/{repo}/commits/{commit_sha}"
+        try:
+            response = requests.get(
+                url,
+                headers=dict(
+                    self.headers, **{"Accept": "application/vnd.github.v3.diff"}
+                ),
+            )
+            response.raise_for_status()
+            return response.text
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Error fetching diff for commit {commit_sha}: {e}")
+            return None
+
+    def _get_commit_stats(self, owner: str, repo: str, sha: str) -> Dict[str, int]:
+        """获取commit的统计信息"""
+        url = f"{self.base_url}/repos/{owner}/{repo}/commits/{sha}"
+        try:
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()
+            data = response.json()
+            return {
+                "additions": data["stats"]["additions"],
+                "deletions": data["stats"]["deletions"],
+                "total": data["stats"]["total"],
+            }
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Error fetching stats for commit {sha}: {e}")
+            return {"additions": 0, "deletions": 0, "total": 0}
+
+    def validate_token(self):
+        """验证 token 是否有效"""
+        try:
+            user_response = requests.get(
+                "https://api.github.com/user", headers=self.headers
+            )
+            self.logger.debug(f"User API Response: {user_response.status_code}")
+
+            if user_response.status_code == 200:
+                self.logger.info("Successfully authenticated with GitHub")
+
+                # 检查仓库访问权限
+                owner, repo = self.settings.repositories_list[0]
+                repo_url = f"{self.base_url}/repos/{owner}/{repo}"
+                self.logger.debug(f"Checking repository access: {repo_url}")
+
+                repo_response = requests.get(repo_url, headers=self.headers)
+                self.logger.debug(
+                    f"Repository API Response: {repo_response.status_code}"
+                )
+                self.logger.debug(f"Repository Response: {repo_response.text}")
+
+                if repo_response.status_code == 200:
+                    self.logger.info(f"Successfully accessed repository {owner}/{repo}")
+                    return True
+                else:
+                    self.logger.error(
+                        f"Repository access failed: {repo_response.json().get('message', 'Unknown error')}"
+                    )
+                    return False
+            else:
+                self.logger.error(
+                    f"Token validation failed: {user_response.json().get('message', 'Unauthorized')}"
+                )
+                return False
+
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Error during validation: {e}")
+            return False
+
+    def check_rate_limit(self):
+        """检查 API 速率限制"""
+        try:
+            response = requests.get(
+                "https://api.github.com/rate_limit", headers=self.headers
+            )
+            if response.status_code == 200:
+                limits = response.json()
+                self.logger.debug(f"Rate limit status: {json.dumps(limits, indent=2)}")
+                core = limits["resources"]["core"]
+                self.logger.info(
+                    f"API calls remaining: {core['remaining']}/{core['limit']}"
+                )
+                return core["remaining"] > 0
+            return True
+        except Exception as e:
+            self.logger.error(f"Error checking rate limit: {e}")
+            return True
+
+    def date_range(self, start_date: str, end_date: str) -> Generator[str, None, None]:
+        """生成日期范围"""
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+
+        current = start
+        while current <= end:
+            yield current.strftime("%Y-%m-%d")
+            current += timedelta(days=1)
+
+    def get_repository_commits(
+        self, owner: str, repo: str, date: str
+    ) -> List[CommitDiff]:
+        """获取某一天的所有commits"""
+        self.logger.info(f"Fetching commits for {owner}/{repo} on {date}")
+        commits = []
+        page = 1
+
+        while True:
+            url = f"{self.base_url}/repos/{owner}/{repo}/commits"
+            params = {
+                "since": f"{date}T00:00:00Z",
+                "until": f"{date}T23:59:59Z",
+                "page": page,
+                "per_page": 100,
+            }
+
+            try:
+                response = requests.get(url, headers=self.headers, params=params)
+                self.logger.debug(
+                    f"Commits API Response: {response.status_code} for page {page}"
+                )
+                response.raise_for_status()
+
+                page_commits = response.json()
+                if not page_commits:
+                    break
+
+                for commit_data in page_commits:
+                    stats = self._get_commit_stats(owner, repo, commit_data["sha"])
+                    commit = CommitDiff(
+                        id=commit_data["sha"],
+                        title=commit_data["commit"]["message"],
+                        author=commit_data["commit"]["author"]["name"],
+                        date=datetime.strptime(
+                            commit_data["commit"]["author"]["date"],
+                            "%Y-%m-%dT%H:%M:%SZ",
+                        ),
+                        stats=CommitStats(**stats),
+                        repository=f"{owner}/{repo}"
+                    )
+                    commits.append(commit)
+
+                page += 1
+                time.sleep(self.settings.request_delay)
+
+            except requests.exceptions.RequestException as e:
+                self.logger.error(f"Error fetching commits: {e}")
+                break
+
+        return commits
+
+    def save_repository_diffs(self, owner: str, repo: str):
+        """保存仓库的diff信息"""
+        repo_dir = self.settings.output_base_dir / f"{owner}_{repo}"
+        repo_dir.mkdir(parents=True, exist_ok=True)
+
+        dates = list(self.date_range(self.settings.start_date, self.settings.end_date))
+        if not dates:
+            self.logger.error("No valid dates to process")
+            return
+
+        self.logger.info(f"Analyzing commits from {dates[0]} to {dates[-1]}")
+
+        for date in tqdm(dates, desc=f"Processing {owner}/{repo}"):
+            date_dir = repo_dir / date
+            date_dir.mkdir(exist_ok=True)
+
+            commits = self.get_repository_commits(owner, repo, date)
+            if not commits:
+                self.logger.info(f"No commits found for {owner}/{repo} on {date}")
+                continue
+
+            commits_meta = []
+            for commit in commits:
+                diff = self.get_commit_diff(owner, repo, commit.id)
+                if diff:
+                    diff_path = date_dir / f"{commit.id}.diff"
+                    diff_path.write_text(diff, encoding="utf-8")
+
+                    commits_meta.append(
+                        {
+                            "sha": commit.id,
+                            "message": commit.title,
+                            "author": commit.author,
+                            "date": commit.date.isoformat(),
+                            "stats": commit.stats.dict(),
+                        }
+                    )
+
+            if commits_meta:
+                metadata_path = date_dir / "metadata.json"
+                metadata_path.write_text(
+                    json.dumps(commits_meta, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                self.logger.info(f"Processed {len(commits_meta)} commits for {date}")
+
+    def analyze(self):
+        """分析指定的仓库"""
+        if not self.validate_token():
+            self.logger.error(
+                "Token validation failed. Please check your token and permissions."
+            )
+            return
+
+        if not self.check_rate_limit():
+            self.logger.error(
+                "API rate limit exceeded. Please wait or use a different token."
+            )
+            return
+
+        for owner, repo in self.settings.repositories_list:
+            self.logger.info(f"Starting analysis for {owner}/{repo}")
+            self.save_repository_diffs(owner, repo)
+            self.logger.info(f"Completed analysis for {owner}/{repo}")
+
+// config.py
+from pathlib import Path
+from typing import List
+
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    github_token: str = Field(..., description="GitHub Personal Access Token")
+    output_base_dir: Path = Field(
+        default=Path("./github_diffs"), description="Output directory for diffs"
+    )
+    repositories: str = Field(
+        default="reworkd/AgentGPT", description="Comma-separated list of repositories"
+    )
+    start_date: str = Field(..., description="Start date for analysis (YYYY-MM-DD)")
+    end_date: str = Field(..., description="End date for analysis (YYYY-MM-DD)")
+    request_delay: float = Field(
+        default=1.0, description="Delay between API requests in seconds"
+    )
+
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
+
+    @property
+    def repositories_list(self) -> List[tuple]:
+        """Convert repository strings to (owner, repo) tuples"""
+        repos = [repo.strip() for repo in self.repositories.split(",")]
+        return [tuple(repo.split("/")) for repo in repos if repo]
+
+
+// models.py
+# models.py
+from datetime import datetime
+from enum import Enum
+from typing import Dict, Optional, List
+from pydantic import BaseModel, Field, computed_field
+
+class AnalysisRequest(BaseModel):
+    repositories: str = Field(..., description="Repository in format owner/repo")
+    start_date: str = Field(..., description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(..., description="End date in YYYY-MM-DD format")
+
+class AnalysisStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+class AnalysisTask(BaseModel):
+    id: str
+    repositories: str
+    start_date: str
+    end_date: str
+    status: AnalysisStatus
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    error: Optional[str] = None
+    processed_commits: int = 0
+    total_commits: int = 0
+
+class ChangeSize(str, Enum):
+    SMALL = "small"      # 50-99
+    MEDIUM = "medium"    # 100-199
+    LARGE = "large"      # 200+
+
+class CommitStats(BaseModel):
+    additions: int = Field(default=0)
+    deletions: int = Field(default=0)
+    total: int = Field(default=0)
+
+    @computed_field
+    @property
+    def additions_size(self) -> Optional[ChangeSize]:
+        return self._get_size(self.additions)
+
+    @computed_field
+    @property
+    def deletions_size(self) -> Optional[ChangeSize]:
+        return self._get_size(self.deletions)
+
+    @computed_field
+    @property
+    def total_size(self) -> Optional[ChangeSize]:
+        return self._get_size(self.total)
+
+    def _get_size(self, value: int) -> Optional[ChangeSize]:
+        if value >= 200:
+            return ChangeSize.LARGE
+        elif value >= 100:
+            return ChangeSize.MEDIUM
+        elif value >= 50:
+            return ChangeSize.SMALL
+        return None
+
+    class Config:
+        from_attributes = True
+
+class CommitSummary(BaseModel):
+    id: str = Field(..., description="Commit SHA")
+    title: str = Field(..., description="Commit message")
+    stats: CommitStats
+    repository: str
+    date: datetime
+
+class CommitDiff(CommitSummary):
+    author: str = Field(..., description="Author name")
+    diff_content: Optional[str] = Field(None, description="Diff content")
+
+    class Config:
+        from_attributes = True
+
+// report_models.py
+from datetime import datetime
+from typing import Optional, List, Dict
+from pydantic import BaseModel, Field
+import json
+from pathlib import Path
+
+class ReportRequest(BaseModel):
+    repository: str = Field(..., description="Repository name (e.g., 'owner/repo')")
+    date: str = Field(..., description="Date in YYYY-MM-DD format")
+    commit_sha: Optional[str] = Field(None, description="Specific commit SHA")
+    force_regenerate: bool = Field(False, description="Force regenerate existing reports")
+
+class CommitReport(BaseModel):
+    id: str = Field(..., description="Report ID (commit SHA)")
+    repository: str = Field(..., description="Repository name")
+    commit_sha: str = Field(..., description="Commit SHA")
+    date: str = Field(..., description="Date of the commit")
+    title: str = Field(..., description="Commit title/message")
+    content: str = Field(..., description="Generated report content")
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    status: str = Field(default="pending")
+    error: Optional[str] = None
+
+class BatchReportStatus(BaseModel):
+    task_id: str = Field(..., description="Batch task ID")
+    repository: str = Field(..., description="Repository name")
+    date: str = Field(..., description="Target date")
+    total_commits: int = Field(0, description="Total number of commits to process")
+    completed_commits: int = Field(0, description="Number of completed commits")
+    status: str = Field(default="pending")
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    completed_at: Optional[datetime] = None
+    error: Optional[str] = None
+
+class ReportStorage:
+    def __init__(self, base_dir: str = "./reports"):
+        self.base_dir = Path(base_dir)
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        self.reports_file = self.base_dir / "reports.json"
+        self.reports: Dict[str, Dict[str, CommitReport]] = {}
+        self._load_reports()
+
+    def _load_reports(self):
+        """Load reports from JSON file"""
+        if self.reports_file.exists():
+            try:
+                data = json.loads(self.reports_file.read_text())
+                for repo, commits in data.items():
+                    self.reports[repo] = {
+                        sha: CommitReport(**report_data)
+                        for sha, report_data in commits.items()
+                    }
+            except Exception as e:
+                print(f"Error loading reports: {e}")
+                self.reports = {}
+
+    def _save_reports(self):
+        """Save reports to JSON file"""
+        data = {
+            repo: {
+                sha: report.dict()
+                for sha, report in commits.items()
+            }
+            for repo, commits in self.reports.items()
+        }
+        self.reports_file.write_text(json.dumps(data, default=str, indent=2))
+
+    def add_report(self, report: CommitReport):
+        """Add or update a report"""
+        if report.repository not in self.reports:
+            self.reports[report.repository] = {}
+        self.reports[report.repository][report.commit_sha] = report
+        self._save_reports()
+
+    def get_report(self, repository: str, commit_sha: str) -> Optional[CommitReport]:
+        """Get a specific report"""
+        return self.reports.get(repository, {}).get(commit_sha)
+
+    def get_reports_by_date(self, repository: str, date: str) -> List[CommitReport]:
+        """Get all reports for a repository on a specific date"""
+        if repository not in self.reports:
+            return []
+        return [
+            report for report in self.reports[repository].values()
+            if report.date == date
+        ]
+
+    def get_all_reports(self, repository: str) -> List[CommitReport]:
+        """Get all reports for a repository"""
+        return list(self.reports.get(repository, {}).values())
+
+// analyze_diffs.py
+import json
+from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List
+
+from config import Settings
+
+
+def analyze_repository_diffs(repo_dir: Path) -> Dict:
+    """分析仓库的diff数据"""
+    stats = {
+        "total_commits": 0,
+        "total_additions": 0,
+        "total_deletions": 0,
+        "commits_by_author": defaultdict(int),
+        "changes_by_author": defaultdict(lambda: {"additions": 0, "deletions": 0}),
+        "commits_by_date": defaultdict(int),
+        "daily_stats": defaultdict(
+            lambda: {"additions": 0, "deletions": 0, "commits": 0}
+        ),
+    }
+
+    for date_dir in repo_dir.glob("*"):
+        if not date_dir.is_dir():
+            continue
+
+        metadata_path = date_dir / "metadata.json"
+        if not metadata_path.exists():
+            continue
+
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        date = date_dir.name
+
+        for commit in metadata:
+            stats["total_commits"] += 1
+            stats["total_additions"] += commit["stats"]["additions"]
+            stats["total_deletions"] += commit["stats"]["deletions"]
+
+            author = commit["author"]
+            stats["commits_by_author"][author] += 1
+            stats["changes_by_author"][author]["additions"] += commit["stats"][
+                "additions"
+            ]
+            stats["changes_by_author"][author]["deletions"] += commit["stats"][
+                "deletions"
+            ]
+
+            stats["commits_by_date"][date] += 1
+            stats["daily_stats"][date]["additions"] += commit["stats"]["additions"]
+            stats["daily_stats"][date]["deletions"] += commit["stats"]["deletions"]
+            stats["daily_stats"][date]["commits"] += 1
+
+    return stats
+
+
+def generate_report():
+    """生成分析报告"""
+    settings = Settings()
+
+    for owner, repo in settings.repositories_list:
+        repo_dir = settings.output_base_dir / f"{owner}_{repo}"
+        if not repo_dir.exists():
+            print(f"No data found for {owner}/{repo}")
+            continue
+
+        stats = analyze_repository_diffs(repo_dir)
+
+        report_path = repo_dir / "analysis_report.json"
+        report_path.write_text(
+            json.dumps(stats, indent=2, default=str), encoding="utf-8"
+        )
+
+        print(f"\nAnalysis Report for {owner}/{repo}:")
+        print(f"Total Commits: {stats['total_commits']}")
+        print(f"Total Lines Added: {stats['total_additions']}")
+        print(f"Total Lines Deleted: {stats['total_deletions']}")
+        print("\nTop Contributors:")
+        for author, count in sorted(
+            stats["commits_by_author"].items(), key=lambda x: x[1], reverse=True
+        )[:5]:
+            print(f"  {author}: {count} commits")
+
+
+if __name__ == "__main__":
+    generate_report()
+
+
+// report_generator.py
+# report_generator.py
+import json
+import os
+from datetime import datetime
+from pathlib import Path
+from typing import Optional, Dict, List
+import uuid
+from tqdm import tqdm
+
+from openai import OpenAI
+from dotenv import load_dotenv
+
+from report_models import CommitReport
+
+load_dotenv()
+
+REPORT_PROMPT = """# Title Format
+[{project_name}] Daily Iteration ({date}) - {focus}
+
+## 💄 Key Code Changes
+```diff
+{diff}
+```
+
+## 🔍 Technical Highlights
+{technical_highlights}
+
+## 📝 Context
+{context}
+"""
+
+class ReportGenerator:
+    def __init__(self):
+        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.reports_dir = Path("./reports")
+        self.reports_dir.mkdir(exist_ok=True)
+
+    def _format_prompt(self, commit_data: Dict, diff_content: str) -> str:
+        """Format the prompt with commit data"""
+        project_name = commit_data['repository'].split('/')[-1]
+        date = datetime.fromisoformat(commit_data['date']).strftime('%Y.%m.%d')
+        focus = commit_data['message'].split('\n')[0]
+
+        return REPORT_PROMPT.format(
+            project_name=project_name,
+            date=date,
+            focus=focus,
+            diff=diff_content,
+            technical_highlights="[To be generated]",
+            context="[To be generated]"
+        )
+
+    async def generate_report(self, commit_data: Dict, diff_content: str, show_progress: bool = False) -> CommitReport:
+        """Generate a report for a commit using OpenAI"""
+        if show_progress:
+            print(f"\nProcessing commit: {commit_data['sha'][:8]} - {commit_data.get('message', '')[:50]}...")
+            print(f"Repository: {commit_data.get('repository', 'Unknown')}")
+            
+        try:
+            if "repository" not in commit_data:
+                raise ValueError("Repository information missing")
+                
+            prompt = self._format_prompt(commit_data, diff_content)
+            
+            # First check if report already exists
+            existing_report = self.get_report(commit_data['repository'], commit_data['sha'])
+            if existing_report and existing_report.status == "completed":
+                if show_progress:
+                    print(f"✓ Found existing report for {commit_data['sha'][:8]}")
+                return existing_report
+
+            # Create initial report
+            report = CommitReport(
+                id=str(uuid.uuid4()),
+                repository=commit_data['repository'],
+                commit_sha=commit_data['sha'],
+                date=commit_data['date'],
+                title=commit_data.get('message', 'No message provided'),
+                content="",
+                status="processing"
+            )
+            self._save_report(report)
+
+            # Generate report with retry logic
+            max_retries = 3
+            last_error = None
+            
+            for attempt in range(max_retries):
+                try:
+                    if show_progress and attempt > 0:
+                        print(f"Retry attempt {attempt + 1} for {commit_data['sha'][:8]}")
+
+                    response = self.client.chat.completions.create(
+                        model="gpt-4-1106-preview",
+                        messages=[
+                            {"role": "system", "content": "You are a technical writer specializing in creating detailed commit analysis reports. Focus on technical details and practical implementation."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=0.7
+                    )
+                    
+                    report_content = response.choices[0].message.content
+                    report.content = report_content
+                    report.status = "completed"
+                    self._save_report(report)
+
+                    if show_progress:
+                        print(f"✓ Successfully generated report for {commit_data['sha'][:8]}")
+                    
+                    return report
+
+                except Exception as e:
+                    last_error = e
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    continue
+            
+            # If we get here, all retries failed
+            report.status = "failed"
+            report.error = str(last_error)
+            self._save_report(report)
+            
+            if show_progress:
+                print(f"✗ Failed to generate report for {commit_data['sha'][:8]}: {str(last_error)}")
+            
+            raise last_error
+            
+        except Exception as e:
+            if show_progress:
+                print(f"✗ Error processing {commit_data['sha'][:8]}: {str(e)}")
+            raise e
+        
+    async def generate_batch_reports(self, commits_data: List[Dict], diff_contents: Dict[str, str]) -> int:
+        """Generate reports for multiple commits with progress tracking"""
+        total = len(commits_data)
+        completed = 0
+        
+        print(f"\nStarting batch report generation for {total} commits")
+        print("Repository:", commits_data[0].get('repository') if commits_data else "Unknown")
+        print("Date:", commits_data[0].get('date', '').split('T')[0] if commits_data else "Unknown")
+        print("-" * 80)
+        
+        with tqdm(total=total, desc="Generating reports", dynamic_ncols=True) as pbar:
+            for commit_data in commits_data:
+                try:
+                    sha = commit_data["sha"]
+                    message = commit_data.get("message", "No message")[:50]
+                    print(f"\nProcessing: [{sha[:8]}] {message}...")
+
+                    # 确保有 repository 字段
+                    if "repository" not in commit_data:
+                        if "repository" in commits_data[0]:
+                            commit_data["repository"] = commits_data[0]["repository"]
+                        else:
+                            raise ValueError("Repository information missing")
+
+                    diff_content = diff_contents.get(sha)
+                    if not diff_content:
+                        print(f"⚠ No diff content found for {sha[:8]}")
+                        continue
+                    
+                    report = await self.generate_report(commit_data, diff_content, show_progress=True)
+                    if report and report.status == "completed":
+                        completed += 1
+                        print(f"✓ Report generated: {sha[:8]} - {message[:30]}...")
+                    
+                except Exception as e:
+                    print(f"✗ Error processing {commit_data.get('sha', 'unknown')[:8]}: {str(e)}")
+                    continue
+                finally:
+                    pbar.update(1)
+                    pbar.set_postfix({"Success": f"{completed}/{total}"})
+        
+        print("\nBatch Generation Summary:")
+        print(f"Total Commits: {total}")
+        print(f"Successfully Generated: {completed}")
+        print(f"Failed: {total - completed}")
+        print("-" * 80)
+                        
+        return completed
+    
+    def _save_report(self, report: CommitReport):
+        """Save report to filesystem"""
+        repo_dir = self.reports_dir / report.repository.replace('/', '_')
+        repo_dir.mkdir(exist_ok=True)
+        
+        date_str = datetime.fromisoformat(report.date).strftime('%Y-%m-%d')
+        date_dir = repo_dir / date_str
+        date_dir.mkdir(exist_ok=True)
+
+        # Save markdown content
+        md_file = date_dir / f"{report.commit_sha}.md"
+        md_file.write_text(report.content, encoding='utf-8')
+
+        # Save metadata
+        meta_file = date_dir / f"{report.commit_sha}.json"
+        meta_data = report.dict()
+        meta_file.write_text(json.dumps(meta_data, indent=2, default=str), encoding='utf-8')
+
+    def get_report(self, repository: str, commit_sha: str) -> Optional[CommitReport]:
+        """Retrieve a report from filesystem"""
+        repo_dir = self.reports_dir / repository.replace('/', '_')
+        if not repo_dir.exists():
+            return None
+
+        # Search in all date directories
+        for date_dir in repo_dir.glob("*"):
+            if not date_dir.is_dir():
+                continue
+
+            meta_file = date_dir / f"{commit_sha}.json"
+            if meta_file.exists():
+                meta_data = json.loads(meta_file.read_text(encoding='utf-8'))
+                return CommitReport(**meta_data)
+
+        return None
+
+    def get_reports_by_date(self, repository: str, date: str) -> List[CommitReport]:
+        """Get all reports for a specific date"""
+        repo_dir = self.reports_dir / repository.replace('/', '_')
+        date_dir = repo_dir / date
+        
+        if not date_dir.exists():
+            return []
+
+        reports = []
+        for meta_file in date_dir.glob("*.json"):
+            meta_data = json.loads(meta_file.read_text(encoding='utf-8'))
+            reports.append(CommitReport(**meta_data))
+
+        return sorted(reports, key=lambda r: r.created_at, reverse=True)
+
+// main.py
+# main.py
+import asyncio
+import json
+import os
+import uuid
+from pathlib import Path
+from typing import List, Optional, Dict
+from fastapi import FastAPI, HTTPException, BackgroundTasks
+import time
+from datetime import datetime
+from dotenv import load_dotenv
+from report_generator import ReportGenerator
+from report_models import BatchReportStatus, ReportRequest, CommitReport
+
+from models import (
+    CommitDiff,
+    CommitSummary,
+    AnalysisRequest,
+    AnalysisTask,
+    AnalysisStatus,
+    CommitStats
+)
+from github_diff_analyzer import GitHubDiffAnalyzer
+from config import Settings
+
+# Load environment variables
+load_dotenv()
+
+app = FastAPI(title="GitHub Analyzer API")
+report_generator = ReportGenerator()
+
+# Global storage
+commit_storage: List[CommitDiff] = []
+analysis_tasks: Dict[str, AnalysisTask] = {}
+
+def reload_commits():
+    """Reload all commits from filesystem"""
+    global commit_storage
+    commit_storage = load_commits_from_fs()
+
+def get_repository_name(repo_dir: Path) -> str:
+    return repo_dir.name.replace("_", "/")
+
+def get_commit_dates(repo_dir: Path) -> List[str]:
+    """Get list of dates that have been analyzed for a repository"""
+    dates = []
+    if repo_dir.exists():
+        for date_dir in repo_dir.glob("*"):
+            if date_dir.is_dir() and date_dir.name != ".git":
+                dates.append(date_dir.name)
+    return sorted(dates)
+
+def load_commits_from_fs(base_dir: Path = Path("./github_diffs")) -> List[CommitDiff]:
+    commits = []
+    if not base_dir.exists():
+        return commits
+
+    for repo_dir in base_dir.glob("*"):
+        if not repo_dir.is_dir():
+            continue
+            
+        repository = get_repository_name(repo_dir)
+        for date_dir in repo_dir.glob("*"):
+            if not date_dir.is_dir() or date_dir.name == ".git":
+                continue
+                
+            metadata_path = date_dir / "metadata.json"
+            if not metadata_path.exists():
+                continue
+                
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                for commit_data in metadata:
+                    diff_path = date_dir / f"{commit_data['sha']}.diff"
+                    diff_content = None
+                    if diff_path.exists():
+                        diff_content = diff_path.read_text(encoding="utf-8")
+                        
+                    commit = CommitDiff(
+                        id=commit_data['sha'],
+                        title=commit_data['message'],
+                        author=commit_data['author'],
+                        date=datetime.fromisoformat(commit_data['date']),
+                        stats=CommitStats(**commit_data['stats']),
+                        diff_content=diff_content,
+                        repository=repository
+                    )
+                    commits.append(commit)
+            except Exception as e:
+                print(f"Error loading commits from {metadata_path}: {e}")
+                continue
+                
+    return commits
+
+def get_missing_dates(start_date: str, end_date: str, existing_dates: List[str]) -> List[str]:
+    """Get list of dates that need to be analyzed"""
+    from datetime import datetime, timedelta
+
+    start = datetime.strptime(start_date, "%Y-%m-%d")
+    end = datetime.strptime(end_date, "%Y-%m-%d")
+    
+    all_dates = []
+    current = start
+    while current <= end:
+        date_str = current.strftime("%Y-%m-%d")
+        if date_str not in existing_dates:
+            all_dates.append(date_str)
+        current += timedelta(days=1)
+    
+    return all_dates
+
+async def run_analysis(task_id: str, repositories: str, start_date: str, end_date: str):
+    """Run the analysis task"""
+    task = analysis_tasks[task_id]
+    try:
+        task.status = AnalysisStatus.RUNNING
+
+        # 检查已存在的数据
+        repo_name = repositories.replace("/", "_")
+        repo_dir = Path("./github_diffs") / repo_name
+        existing_dates = get_commit_dates(repo_dir)
+        
+        # 获取需要分析的日期
+        missing_dates = get_missing_dates(start_date, end_date, existing_dates)
+        
+        if not missing_dates:
+            task.status = AnalysisStatus.COMPLETED
+            task.completed_at = datetime.now()
+            task.processed_commits = len([c for c in commit_storage if c.repository == repositories])
+            return
+
+        # 创建新的设置，只分析缺失的日期
+        settings_dict = {
+            "github_token": os.getenv("GITHUB_TOKEN"),
+            "output_base_dir": "./github_diffs",
+            "repositories": repositories,
+            "start_date": missing_dates[0],
+            "end_date": missing_dates[-1],
+            "request_delay": 1.0
+        }
+        
+        settings = Settings(**settings_dict)
+        analyzer = GitHubDiffAnalyzer(settings)
+        analyzer.analyze()
+        
+        # 重新加载所有提交
+        reload_commits()
+        
+        task.status = AnalysisStatus.COMPLETED
+        task.completed_at = datetime.now()
+        task.processed_commits = len([c for c in commit_storage if c.repository == repositories])
+        
+    except Exception as e:
+        task.status = AnalysisStatus.FAILED
+        task.error = str(e)
+        print(f"Analysis failed: {str(e)}")
+
+@app.on_event("startup")
+async def startup_event():
+    """Load commits from filesystem on startup"""
+    reload_commits()
+
+@app.post("/analyze", response_model=Dict, tags=["analysis"])
+async def start_analysis(
+    request: AnalysisRequest,
+    background_tasks: BackgroundTasks
+):
+    """Start a new analysis task"""
+    task_id = str(uuid.uuid4())
+    repo_name = request.repositories.replace("/", "_")
+    repo_dir = Path("./github_diffs") / repo_name
+    existing_dates = get_commit_dates(repo_dir)
+    missing_dates = get_missing_dates(request.start_date, request.end_date, existing_dates)
+    
+    task = AnalysisTask(
+        id=task_id,
+        repositories=request.repositories,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        status=AnalysisStatus.PENDING,
+        created_at=datetime.now()
+    )
+    analysis_tasks[task_id] = task
+    
+    background_tasks.add_task(
+        run_analysis,
+        task_id,
+        request.repositories,
+        request.start_date,
+        request.end_date
+    )
+    
+    return {
+        "task_id": task_id,
+        "message": "Analysis started",
+        "repositories": request.repositories,
+        "start_date": request.start_date,
+        "end_date": request.end_date,
+        "existing_dates": existing_dates,
+        "dates_to_analyze": missing_dates,
+        "current_commits": len([c for c in commit_storage if c.repository == request.repositories])
+    }
+
+@app.get("/tasks/{task_id}", response_model=AnalysisTask, tags=["analysis"])
+async def get_task_status(task_id: str):
+    """Get status of a specific analysis task"""
+    if task_id not in analysis_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return analysis_tasks[task_id]
+
+@app.get("/commits", response_model=List[CommitDiff], tags=["commits"])
+async def get_all_commits():
+    """Get all commits"""
+    return commit_storage
+
+@app.get("/commits/summary", response_model=List[CommitSummary], tags=["commits"])
+async def get_commits_summary():
+    """Get summary of all commits with their titles and stats"""
+    return [CommitSummary(
+        id=commit.id,
+        title=commit.title,
+        stats=commit.stats,
+        repository=commit.repository,
+        date=commit.date
+    ) for commit in commit_storage]
+
+@app.get("/commits/{commit_id}", response_model=CommitDiff, tags=["commits"])
+async def get_commit(commit_id: str):
+    """Get a specific commit by ID"""
+    for commit in commit_storage:
+        if commit.id == commit_id:
+            return commit
+    raise HTTPException(status_code=404, detail="Commit not found")
+
+@app.get("/commits/by-author/{author}", response_model=List[CommitDiff], tags=["commits"])
+async def get_commits_by_author(author: str):
+    """Get all commits by a specific author"""
+    matched_commits = [commit for commit in commit_storage if commit.author == author]
+    if not matched_commits:
+        raise HTTPException(status_code=404, detail=f"No commits found for author: {author}")
+    return matched_commits
+
+@app.get("/commits/by-date/{date}", response_model=List[CommitDiff], tags=["commits"])
+async def get_commits_by_date(date: str):
+    """Get all commits on a specific date"""
+    try:
+        target_date = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+        
+    matched_commits = [
+        commit for commit in commit_storage 
+        if commit.date.date() == target_date
+    ]
+    
+    if not matched_commits:
+        raise HTTPException(status_code=404, detail=f"No commits found for date: {date}")
+    return matched_commits
+
+@app.get("/commits/stats/summary", response_model=Dict, tags=["stats"])
+async def get_stats_summary():
+    """Get summary of commit statistics with size categorization"""
+    summary = {
+        "small": {"additions": 0, "deletions": 0, "total": 0},
+        "medium": {"additions": 0, "deletions": 0, "total": 0},
+        "large": {"additions": 0, "deletions": 0, "total": 0}
+    }
+    
+    for commit in commit_storage:
+        if commit.stats.additions_size:
+            summary[commit.stats.additions_size]["additions"] += 1
+        if commit.stats.deletions_size:
+            summary[commit.stats.deletions_size]["deletions"] += 1
+        if commit.stats.total_size:
+            summary[commit.stats.total_size]["total"] += 1
+            
+    return summary
+
+@app.get("/repositories", response_model=List[str], tags=["repositories"])
+async def get_repositories():
+    """Get list of all repositories"""
+    return list(set(commit.repository for commit in commit_storage))
+
+@app.get("/repositories/{repo}/dates", response_model=List[str], tags=["repositories"])
+async def get_repository_dates(repo: str):
+    """Get list of dates that have been analyzed for a repository"""
+    repo_dir = Path("./github_diffs") / repo.replace("/", "_")
+    return get_commit_dates(repo_dir)
+
+@app.get("/health", tags=["system"])
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "commits_loaded": len(commit_storage),
+        "repositories": list(set(commit.repository for commit in commit_storage)),
+        "running_tasks": len([t for t in analysis_tasks.values() if t.status == AnalysisStatus.RUNNING])
+    }
+
+# for report generation
+@app.post("/reports/generate", response_model=CommitReport, tags=["reports"])
+async def generate_commit_report(request: ReportRequest):
+    """Generate a report for a specific commit or all commits on a date"""
+    try:
+        repo_dir = Path("./github_diffs") / request.repository.replace("/", "_")
+        date_dir = repo_dir / request.date
+        
+        if not date_dir.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"No data found for repository {request.repository} on date {request.date}"
+            )
+
+        metadata_path = date_dir / "metadata.json"
+        if not metadata_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail="No commit metadata found"
+            )
+
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        
+        # If commit_sha is provided, generate report for specific commit
+        if request.commit_sha:
+            commit_data = None
+            for commit in metadata:
+                if commit["sha"] == request.commit_sha:
+                    commit_data = commit
+                    break
+                    
+            if not commit_data:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Commit {request.commit_sha} not found"
+                )
+
+            # Check if report already exists
+            existing_report = report_generator.get_report(request.repository, request.commit_sha)
+            if existing_report and existing_report.status == "completed":
+                return existing_report
+
+            # Get diff content
+            diff_path = date_dir / f"{request.commit_sha}.diff"
+            if not diff_path.exists():
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Diff file not found for commit {request.commit_sha}"
+                )
+
+            diff_content = diff_path.read_text(encoding="utf-8")
+            
+            # Add repository to commit data
+            commit_data["repository"] = request.repository
+            
+            # Generate report
+            return await report_generator.generate_report(commit_data, diff_content)
+            
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="commit_sha is required"
+            )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error generating report: {str(e)}"
+        )
+
+@app.get("/reports/{repository}/{commit_sha}", response_model=CommitReport, tags=["reports"])
+async def get_commit_report(repository: str, commit_sha: str):
+    """Get a generated report for a specific commit"""
+    report = report_generator.get_report(repository, commit_sha)
+    if not report:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Report not found for commit {commit_sha}"
+        )
+    return report
+
+@app.get("/reports/{repository}/date/{date}", response_model=List[CommitReport], tags=["reports"])
+async def get_reports_by_date(repository: str, date: str):
+    """Get all reports for a specific date"""
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid date format. Use YYYY-MM-DD"
+        )
+        
+    reports = report_generator.get_reports_by_date(repository, date)
+    return reports
+
+batch_tasks: Dict[str, BatchReportStatus] = {}
+
+async def generate_reports_for_date(task_id: str, repository: str, date: str, force_regenerate: bool = False):
+    """为指定日期的所有commits生成报告的后台任务"""
+    task = batch_tasks[task_id]
+    try:
+        # 首先等待分析任务完成
+        await wait_for_analysis(repository, date)
+        
+        repo_dir = Path("./github_diffs") / repository.replace("/", "_")
+        date_dir = repo_dir / date
+        
+        if not date_dir.exists():
+            raise Exception(f"No data found for repository {repository} on date {date}")
+
+        metadata_path = date_dir / "metadata.json"
+        if not metadata_path.exists():
+            raise Exception("No commit metadata found")
+
+        # 预加载所有 diff 内容和添加仓库信息
+        diff_contents = {}
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        
+        # 为每个 commit 添加仓库信息
+        for commit_data in metadata:
+            commit_data["repository"] = repository  # 添加仓库信息
+            diff_path = date_dir / f"{commit_data['sha']}.diff"
+            if diff_path.exists():
+                diff_contents[commit_data["sha"]] = diff_path.read_text(encoding="utf-8")
+            else:
+                print(f"Warning: No diff found for {commit_data['sha']}")
+
+        task.total_commits = len(metadata)
+        task.status = "running"
+        task.updated_at = datetime.now()
+
+        # 使用 generate_batch_reports 处理
+        completed = await report_generator.generate_batch_reports(metadata, diff_contents)
+        
+        task.completed_commits = completed
+        task.status = "completed"
+        task.completed_at = datetime.now()
+        task.updated_at = datetime.now()
+        
+    except Exception as e:
+        task.status = "failed"
+        task.error = str(e)
+        task.updated_at = datetime.now()
+        raise e
+async def wait_for_analysis(repository: str, date: str, timeout: int = 300):
+    """等待分析任务完成"""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        repo_dir = Path("./github_diffs") / repository.replace("/", "_")
+        date_dir = repo_dir / date
+        metadata_path = date_dir / "metadata.json"
+        
+        if metadata_path.exists():
+            return True
+            
+        await asyncio.sleep(5)
+    
+    raise TimeoutError(f"Analysis for {repository} on {date} did not complete in time")
+
+@app.post("/reports/generate-batch", response_model=BatchReportStatus, tags=["reports"])
+async def generate_batch_reports(
+    request: ReportRequest,
+    background_tasks: BackgroundTasks
+):
+    """Generate reports for all commits on a specific date"""
+    task_id = str(uuid.uuid4())
+    task = BatchReportStatus(
+        task_id=task_id,
+        repository=request.repository,
+        date=request.date
+    )
+    batch_tasks[task_id] = task
+    
+    background_tasks.add_task(
+        generate_reports_for_date,
+        task_id,
+        request.repository,
+        request.date,
+        request.force_regenerate
+    )
+    
+    return task
+
+@app.get("/reports/batch/{task_id}", response_model=BatchReportStatus, tags=["reports"])
+async def get_batch_status(task_id: str):
+    """Get status of a batch report generation task"""
+    if task_id not in batch_tasks:
+        raise HTTPException(
+            status_code=404,
+            detail="Batch task not found"
+        )
+    return batch_tasks[task_id]
+
+@app.get("/reports/list/{repository}/{date}", response_model=List[CommitReport], tags=["reports"])
+async def list_date_reports(
+    repository: str,
+    date: str,
+    include_content: bool = False  # 添加参数控制是否包含报告内容
+):
+    """List all reports for a specific date, optionally including their content"""
+    reports = report_generator.get_reports_by_date(repository, date)
+    
+    if not include_content:
+        # 如果不需要内容，将内容设置为空以减少响应大小
+        for report in reports:
+            report.content = ""
+            
+    return reports
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+

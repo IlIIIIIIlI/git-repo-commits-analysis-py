@@ -1,0 +1,13 @@
+diff --git a/src/components/AutonomousAgent.ts b/src/components/AutonomousAgent.ts
+index bb44fa08fe..2e8f1dd699 100644
+--- a/src/components/AutonomousAgent.ts
++++ b/src/components/AutonomousAgent.ts
+@@ -56,7 +56,7 @@ class AutonomousAgent {
+     }
+ 
+     this.numLoops += 1;
+-    if (this.numLoops >= 30) {
++    if (this.numLoops >= 10) {
+       this.sendLoopMessage();
+       this.shutdown();
+       return;

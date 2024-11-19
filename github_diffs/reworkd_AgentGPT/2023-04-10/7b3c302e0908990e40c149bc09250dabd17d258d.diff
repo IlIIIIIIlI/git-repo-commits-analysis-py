@@ -1,0 +1,18 @@
+diff --git a/src/components/ChatWindow.tsx b/src/components/ChatWindow.tsx
+index 9cbe74f4ac..46f0d38d99 100644
+--- a/src/components/ChatWindow.tsx
++++ b/src/components/ChatWindow.tsx
+@@ -66,6 +66,13 @@ const ChatWindow = ({ messages, children, className }: ChatWindowProps) => {
+                   "> Create an agent by adding a name / goal, and hitting deploy!",
+               }}
+             />
++            <ChatMessage
++              message={{
++                type: "system",
++                value:
++                  "📢 Please first provide your own OpenAI API key via the settings tab!",
++              }}
++            />
+           </Expand>
+         ) : (
+           ""

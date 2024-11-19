@@ -1,0 +1,85 @@
+diff --git a/src/components/AutonomousAgent.ts b/src/components/AutonomousAgent.ts
+index 4b102206a9..bb44fa08fe 100644
+--- a/src/components/AutonomousAgent.ts
++++ b/src/components/AutonomousAgent.ts
+@@ -112,7 +112,7 @@ class AutonomousAgent {
+   async getInitialTasks(): Promise<string[]> {
+     const res = await axios.post(`/api/chain`, { goal: this.goal });
+     // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access,@typescript-eslint/no-unsafe-argument
+-    return JSON.parse(res.data.tasks) as string[];
++    return res.data.tasks as string[];
+   }
+ 
+   async getAdditionalTasks(
+@@ -126,7 +126,7 @@ class AutonomousAgent {
+       result: result,
+     });
+     // eslint-disable-next-line @typescript-eslint/no-unsafe-argument,@typescript-eslint/no-unsafe-member-access
+-    return JSON.parse(res.data.tasks) as string[];
++    return res.data.tasks as string[];
+   }
+ 
+   async executeTask(task: string): Promise<string> {
+diff --git a/src/pages/api/chain.ts b/src/pages/api/chain.ts
+index cc9c72944a..2c7e284351 100644
+--- a/src/pages/api/chain.ts
++++ b/src/pages/api/chain.ts
+@@ -1,5 +1,5 @@
+ import type { NextApiRequest, NextApiResponse } from "next";
+-import { startGoalAgent } from "../../utils/chain";
++import { extractArray, startGoalAgent } from "../../utils/chain";
+ 
+ export interface ChainAPIRequest extends NextApiRequest {
+   body: {
+@@ -17,5 +17,6 @@ export default async function handler(
+ ) {
+   const completion = await startGoalAgent(req.body.goal);
+   console.log(completion.text);
+-  res.status(200).json({ tasks: completion.text as string[] });
++  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
++  res.status(200).json({ tasks: extractArray(completion.text) });
+ }
+diff --git a/src/pages/api/create.ts b/src/pages/api/create.ts
+index 7ed8c32a45..6fa9d504e6 100644
+--- a/src/pages/api/create.ts
++++ b/src/pages/api/create.ts
+@@ -1,4 +1,4 @@
+-import { executeCreateTaskAgent } from "../../utils/chain";
++import { executeCreateTaskAgent, extractArray } from "../../utils/chain";
+ import type { NextApiRequest } from "next";
+ import type { NextApiResponse } from "next";
+ 
+@@ -28,5 +28,6 @@ export default async function handler(
+     req.body.result
+   );
+   console.log(completion.text);
+-  res.status(200).json({ tasks: completion.text as string[] });
++  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
++  res.status(200).json({ tasks: extractArray(completion.text) });
+ }
+diff --git a/src/utils/chain.ts b/src/utils/chain.ts
+index 445c3e4b84..6b6f55b298 100644
+--- a/src/utils/chain.ts
++++ b/src/utils/chain.ts
+@@ -49,3 +49,21 @@ export const executeCreateTaskAgent = async (
+     result,
+   });
+ };
++
++export const extractArray = (inputStr: string): string[] => {
++  // Match an outer array of strings (including nested arrays)
++  const regex = /(\[(?:\s*"(?:[^"\\]|\\.)*"\s*,?)+\s*\])/;
++  const match = inputStr.match(regex);
++
++  if (match && match[0]) {
++    try {
++      // Parse the matched string to get the array
++      return JSON.parse(match[0]) as string[];
++    } catch (error) {
++      console.error("Error parsing the matched array:", error);
++    }
++  }
++
++  console.error("Error, could not extract array from inputString:", inputStr);
++  return [];
++};

@@ -1,0 +1,623 @@
+diff --git a/.env.example b/.env.example
+index 7190bb789c..dee118aa9f 100644
+--- a/.env.example
++++ b/.env.example
+@@ -1,25 +1,13 @@
+-# Since the ".env" file is gitignored, you can use the ".env.example" file to
+-# build a new ".env" file when you clone the repo. Keep this file up-to-date
+-# when you add new variables to `.env`.
++# Deployment Environment:
++NODE_ENV=development
+ 
+-# This file will be committed to version control, so make sure not to have any
+-# secrets in it. If you are cloning this repo, create a copy of this file named
+-# ".env" and populate it with your secrets.
+-
+-# When adding additional environment variables, the schema in "/env/schema.mjs"
+-# should be updated accordingly.
++# Next Auth config:
++# Generate a secret with `openssl rand -base64 32`
++NEXTAUTH_SECRET=changeme
++NEXTAUTH_URL=http://localhost:3000
+ 
+ # Prisma
+-# https://www.prisma.io/docs/reference/database-reference/connection-urls#env
+-DATABASE_URL="file:./db.sqlite"
+-
+-# Next Auth
+-# You can generate a new secret on the command line with:
+-# openssl rand -base64 32
+-# https://next-auth.js.org/configuration/options#secret
+-# NEXTAUTH_SECRET=""
+-NEXTAUTH_URL="http://localhost:3000"
++DATABASE_URL=file:./db.sqlite
+ 
+-# Next Auth Discord Provider
+-DISCORD_CLIENT_ID=""
+-DISCORD_CLIENT_SECRET=""
++# External APIs:
++OPENAI_API_KEY=changeme
+diff --git a/README.md b/README.md
+index da58e1f759..b04a954c2e 100644
+--- a/README.md
++++ b/README.md
+@@ -8,27 +8,29 @@
+     <img alt="Node version" src="https://img.shields.io/static/v1?label=node&message=%20%3E=16.0.0&logo=node.js&color=2334D058" />
+ </p>
+ 
+-
+ <p align="center">
+ <a href="https://agentgpt.reworkd.ai">🔗 Short link</a>
+ <span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
+ <a href="#-getting-started">🤝 Contribute</a>
++<span>&nbsp;&nbsp;•&nbsp;&nbsp;</span>
++<a href="https://twitter.com/asimdotshrestha/status/1644883727707959296">🐦 Twitter</a>
+ </p>
+ 
+ ---
+ 
+-AgentGPT allows you to configure and deploy Autonomous AI agents. Name your own custom AI and have it embark on any goal imaginable. It will attempt to reach the goal by thinking of tasks to do, executing them, and learning from the results 🚀.
++AgentGPT allows you to configure and deploy Autonomous AI agents.
++Name your own custom AI and have it embark on any goal imaginable.
++It will attempt to reach the goal by thinking of tasks to do, executing them, and learning from the results 🚀.
+ 
++## 🎉 Features
+ 
+ This platform is currently in beta, we are currently working on:
++
+ - Long term memory 🧠
+ - Web browsing 🌐
+ - Interaction with websites and people 👨‍👩‍👦
+ 
+-
+-## 🎉 Features
+-
+-Coming soon...
++More Coming soon...
+ 
+ ## 🚀 Tech Stack
+ 
+@@ -66,19 +68,19 @@ npm install
+ > 🚧 The environment variables must match the following [schema](https://github.com/reworkd/AgentGPT/blob/main/src/env/schema.mjs).
+ 
+ ```bash
+-# Next Auth Secrets
+-NODE_ENV=production
+-NEXTAUTH_SECRET=
+-NEXTAUTH_URL=http://localhost:3000
++# Deployment Environment:
++NODE_ENV=development
+ 
+ # Next Auth config:
+-NEXTAUTH_SECRET=
+-NEXTAUTH_URL=
++# Generate a secret with `openssl rand -base64 32`
++NEXTAUTH_SECRET=changeme
++NEXTAUTH_URL=http://localhost:3000
++
++# Prisma
++DATABASE_URL=file:./db.sqlite
+ 
+-# Database URLs:
+-DATABASE_URL=
+-NEXT_PUBLIC_SUPABASE_URL=
+-NEXT_PUBLIC_SUPABASE_ANON_KEY=
++# External APIs:
++OPENAI_API_KEY=changeme
+ ```
+ 
+ 5. Ready 🥳, now run:
+diff --git a/aws/cf/agent.cf.json b/aws/cf/agent.cf.json
+new file mode 100644
+index 0000000000..7de4bd0c62
+--- /dev/null
++++ b/aws/cf/agent.cf.json
+@@ -0,0 +1,316 @@
++{
++    "AWSTemplateFormatVersion": "2010-09-09",
++    "Description": "Create a stack that runs Chroma hosted on a single instance",
++    "Parameters": {
++        "KeyName": {
++            "Description": "Name of an existing EC2 KeyPair to enable SSH access to the instance",
++            "Type": "String",
++            "ConstraintDescription": "If present, must be the name of an existing EC2 KeyPair.",
++            "Default": ""
++        },
++        "InstanceType": {
++            "Description": "EC2 instance type",
++            "Type": "String",
++            "Default": "t3.small"
++        },
++        "ChromaVersion": {
++            "Description": "Chroma version to install",
++            "Type": "String",
++            "Default": "0.3.21"
++        }
++    },
++    "Conditions": {
++        "HasKeyName": {
++            "Fn::Not": [
++                {
++                    "Fn::Equals": [
++                        {
++                            "Ref": "KeyName"
++                        },
++                        ""
++                    ]
++                }
++            ]
++        }
++    },
++    "Resources": {
++        "ChromaInstance": {
++            "Type": "AWS::EC2::Instance",
++            "Properties": {
++                "ImageId": {
++                    "Fn::FindInMap": [
++                        "Region2AMI",
++                        {
++                            "Ref": "AWS::Region"
++                        },
++                        "AMI"
++                    ]
++                },
++                "InstanceType": {
++                    "Ref": "InstanceType"
++                },
++                "UserData": {
++                    "Fn::Base64": {
++                        "Fn::Join": [
++                            "",
++                            [
++                                "Content-Type: multipart/mixed; boundary=\"//\"\n",
++                                "MIME-Version: 1.0\n",
++                                "\n",
++                                "--//\n",
++                                "Content-Type: text/cloud-config; charset=\"us-ascii\"\n",
++                                "MIME-Version: 1.0\n",
++                                "Content-Transfer-Encoding: 7bit\n",
++                                "Content-Disposition: attachment; filename=\"cloud-config.txt\"\n",
++                                "\n",
++                                "\n",
++                                "#cloud-config\n",
++                                "cloud_final_modules:\n",
++                                "- [scripts-user, always]\n",
++                                "\n",
++                                "\n",
++                                "--//\n",
++                                "Content-Type: text/x-shellscript; charset=\"us-ascii\"\n",
++                                "MIME-Version: 1.0\n",
++                                "Content-Transfer-Encoding: 7bit\n",
++                                "Content-Disposition: attachment; filename=\"userdata.txt\"\n",
++                                "\n",
++                                "\n",
++                                "#!/bin/bash\n",
++                                "amazon-linux-extras install docker\n",
++                                "usermod -a -G docker ec2-user\n",
++                                "curl -L https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose\n",
++                                "chmod +x /usr/local/bin/docker-compose\n",
++                                "ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose\n",
++                                "systemctl enable docker\n",
++                                "systemctl start docker\n",
++                                "\n",
++                                "cat << EOF > /home/ec2-user/docker-compose.yml\n",
++                                "version: '3.9'\n",
++                                "\n",
++                                "networks:\n",
++                                "  net:\n",
++                                "    driver: bridge\n",
++                                "\n",
++                                "services:\n",
++                                "  server:\n",
++                                {
++                                    "Fn::Sub": "    image: ghcr.io/chroma-core/chroma:${ChromaVersion}\n"
++                                },
++                                "    volumes:\n",
++                                "      - index_data:/index_data\n",
++                                "    environment:\n",
++                                "      - CHROMA_DB_IMPL=clickhouse\n",
++                                "      - CLICKHOUSE_HOST=clickhouse\n",
++                                "      - CLICKHOUSE_PORT=8123\n",
++                                "    ports:\n",
++                                "      - 8000:8000\n",
++                                "    depends_on:\n",
++                                "      - clickhouse\n",
++                                "    networks:\n",
++                                "      - net\n",
++                                "\n",
++                                "  clickhouse:\n",
++                                "    image: clickhouse/clickhouse-server:22.9-alpine\n",
++                                "    environment:\n",
++                                "      - ALLOW_EMPTY_PASSWORD=yes\n",
++                                "      - CLICKHOUSE_TCP_PORT=9000\n",
++                                "      - CLICKHOUSE_HTTP_PORT=8123\n",
++                                "    ports:\n",
++                                "      - '8123:8123'\n",
++                                "      - '9000:9000'\n",
++                                "    volumes:\n",
++                                "      - clickhouse_data:/bitnami/clickhouse\n",
++                                "      - backups:/backups\n",
++                                "      - ./config/backup_disk.xml:/etc/clickhouse-server/config.d/backup_disk.xml\n",
++                                "      - ./config/chroma_users.xml:/etc/clickhouse-server/users.d/chroma.xml\n",
++                                "    networks:\n",
++                                "      - net\n",
++                                "\n",
++                                "volumes:\n",
++                                "  clickhouse_data:\n",
++                                "    driver: local\n",
++                                "  index_data:\n",
++                                "    driver: local\n",
++                                "  backups:\n",
++                                "    driver: local\n",
++                                "\n",
++                                "EOF\n",
++                                "\n",
++                                "mkdir /home/ec2-user/config\n",
++                                "\n",
++                                "cat << EOF > /home/ec2-user/config/backup_disk.xml\n",
++                                "<clickhouse>\n",
++                                "    <storage_configuration>\n",
++                                "        <disks>\n",
++                                "            <backups>\n",
++                                "                <type>local</type>\n",
++                                "                <path>/etc/clickhouse-server/</path>\n",
++                                "            </backups>\n",
++                                "        </disks>\n",
++                                "    </storage_configuration>\n",
++                                "    <backups>\n",
++                                "        <allowed_disk>backups</allowed_disk>\n",
++                                "        <allowed_path>/etc/clickhouse-server/</allowed_path>\n",
++                                "    </backups>\n",
++                                "</clickhouse>\n",
++                                "EOF\n",
++                                "\n",
++                                "cat << EOF > /home/ec2-user/config/chroma_users.xml\n",
++                                "<clickhouse>\n",
++                                "    <profiles>\n",
++                                "      <default>\n",
++                                "            <allow_experimental_lightweight_delete>1</allow_experimental_lightweight_delete>\n",
++                                "            <mutations_sync>1</mutations_sync>\n",
++                                "        </default>\n",
++                                "    </profiles>\n",
++                                "</clickhouse>\n",
++                                "\n",
++                                "EOF\n",
++                                "\n",
++                                "docker-compose -f /home/ec2-user/docker-compose.yml up -d\n",
++                                "\n",
++                                "--//--\n"
++                            ]
++                        ]
++                    }
++                },
++                "SecurityGroupIds": [
++                    {
++                        "Ref": "ChromaInstanceSecurityGroup"
++                    }
++                ],
++                "KeyName": {
++                    "Fn::If": [
++                        "HasKeyName",
++                        {
++                            "Ref": "KeyName"
++                        },
++                        {
++                            "Ref": "AWS::NoValue"
++                        }
++                    ]
++                },
++                "BlockDeviceMappings": [
++                    {
++                        "DeviceName": {
++                            "Fn::FindInMap": [
++                                "Region2AMI",
++                                {
++                                    "Ref": "AWS::Region"
++                                },
++                                "RootDeviceName"
++                            ]
++                        },
++                        "Ebs": {
++                            "VolumeSize": 24
++                        }
++                    }
++                ]
++            }
++        },
++        "ChromaInstanceSecurityGroup": {
++            "Type": "AWS::EC2::SecurityGroup",
++            "Properties": {
++                "GroupDescription": "Chroma Instance Security Group",
++                "SecurityGroupIngress": [
++                    {
++                        "IpProtocol": "tcp",
++                        "FromPort": "22",
++                        "ToPort": "22",
++                        "CidrIp": "0.0.0.0/0"
++                    },
++                    {
++                        "IpProtocol": "tcp",
++                        "FromPort": "8000",
++                        "ToPort": "8000",
++                        "CidrIp": "0.0.0.0/0"
++                    }
++                ]
++            }
++        }
++    },
++    "Outputs": {
++        "ServerIp": {
++            "Description": "IP address of the Chroma server",
++            "Value": {
++                "Fn::GetAtt": [
++                    "ChromaInstance",
++                    "PublicIp"
++                ]
++            }
++        }
++    },
++    "Mappings": {
++        "Region2AMI": {
++            "ap-south-1": {
++                "AMI": "ami-0a26068186838e542",
++                "RootDeviceName": "/dev/xvda"
++            },
++            "eu-north-1": {
++                "AMI": "ami-04429d960e0f4871e",
++                "RootDeviceName": "/dev/xvda"
++            },
++            "eu-west-3": {
++                "AMI": "ami-00575c0cbc20caf50",
++                "RootDeviceName": "/dev/xvda"
++            },
++            "eu-west-2": {
++                "AMI": "ami-0acf1d0fb2c50538d",
++                "RootDeviceName": "/dev/xvda"
++            },
++            "eu-west-1": {
++                "AMI": "ami-09e2d756e7d78558d",
++                "RootDeviceName": "/dev/xvda"
++            },
++            "ap-northeast-3": {
++                "AMI": "ami-0bfdfe2977c12e24b",
++                "RootDeviceName": "/dev/xvda"
++            },
++            "ap-northeast-2": {
++                "AMI": "ami-02de72c5dc79358c9",
++                "RootDeviceName": "/dev/xvda"
++            },
++            "ap-northeast-1": {
++                "AMI": "ami-0329eac6c5240c99d",
++                "RootDeviceName": "/dev/xvda"
++            },
++            "ca-central-1": {
++                "AMI": "ami-0f6b3aca8444b4f04",
++                "RootDeviceName": "/dev/xvda"
++            },
++            "sa-east-1": {
++                "AMI": "ami-078f9645b086944ab",
++                "RootDeviceName": "/dev/xvda"
++            },
++            "ap-southeast-1": {
++                "AMI": "ami-00653100209f2247d",
++                "RootDeviceName": "/dev/xvda"
++            },
++            "ap-southeast-2": {
++                "AMI": "ami-0d6fb2916ee0ab9fe",
++                "RootDeviceName": "/dev/xvda"
++            },
++            "eu-central-1": {
++                "AMI": "ami-06616b7884ac98cdd",
++                "RootDeviceName": "/dev/xvda"
++            },
++            "us-east-1": {
++                "AMI": "ami-09d3b3274b6c5d4aa",
++                "RootDeviceName": "/dev/xvda"
++            },
++            "us-east-2": {
++                "AMI": "ami-0beaa649c482330f7",
++                "RootDeviceName": "/dev/xvda"
++            },
++            "us-west-1": {
++                "AMI": "ami-0e4d9ed95865f3b40",
++                "RootDeviceName": "/dev/xvda"
++            },
++            "us-west-2": {
++                "AMI": "ami-098e42ae54c764c35",
++                "RootDeviceName": "/dev/xvda"
++            }
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/aws/cf/deploy.sh b/aws/cf/deploy.sh
+new file mode 100644
+index 0000000000..99e54aeb55
+--- /dev/null
++++ b/aws/cf/deploy.sh
+@@ -0,0 +1,5 @@
++#!/bin/bash
++cd "$(dirname "$0")"
++
++aws cloudformation create-stack --stack-name agent \
++  --template-body file:///$PWD/agent.cf.json
+\ No newline at end of file
+diff --git a/src/components/ChatWindow.tsx b/src/components/ChatWindow.tsx
+index 02d00d255c..9cbe74f4ac 100644
+--- a/src/components/ChatWindow.tsx
++++ b/src/components/ChatWindow.tsx
+@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
+ import { FaBrain, FaListAlt, FaPlayCircle, FaStar } from "react-icons/fa";
+ import autoAnimate from "@formkit/auto-animate";
+ import PopIn from "./motions/popin";
++import Expand from "./motions/expand";
+ 
+ interface ChatWindowProps {
+   children?: ReactNode;
+@@ -57,7 +58,7 @@ const ChatWindow = ({ messages, children, className }: ChatWindowProps) => {
+         {children}
+ 
+         {messages.length === 0 ? (
+-          <PopIn delay={1}>
++          <Expand delay={0.8} type="spring">
+             <ChatMessage
+               message={{
+                 type: "system",
+@@ -65,7 +66,7 @@ const ChatWindow = ({ messages, children, className }: ChatWindowProps) => {
+                   "> Create an agent by adding a name / goal, and hitting deploy!",
+               }}
+             />
+-          </PopIn>
++          </Expand>
+         ) : (
+           ""
+         )}
+@@ -77,9 +78,15 @@ const ChatWindow = ({ messages, children, className }: ChatWindowProps) => {
+ const MacWindowHeader = () => {
+   return (
+     <div className="flex gap-1 rounded-t-3xl p-3">
+-      <div className="h-3 w-3 rounded-full bg-red-500" />
+-      <div className="h-3 w-3 rounded-full bg-yellow-500" />
+-      <div className="h-3 w-3 rounded-full bg-green-500" />
++      <PopIn delay={0.4}>
++        <div className="h-3 w-3 rounded-full bg-red-500" />
++      </PopIn>
++      <PopIn delay={0.5}>
++        <div className="h-3 w-3 rounded-full bg-yellow-500" />
++      </PopIn>
++      <PopIn delay={0.6}>
++        <div className="h-3 w-3 rounded-full bg-green-500" />
++      </PopIn>
+     </div>
+   );
+ };
+diff --git a/src/components/Drawer.tsx b/src/components/Drawer.tsx
+index 4f6fc360ba..a07506e3da 100644
+--- a/src/components/Drawer.tsx
++++ b/src/components/Drawer.tsx
+@@ -60,13 +60,11 @@ const Drawer = ({ handleHelp }: { handleHelp: () => void }) => {
+               </FadeOut>
+             ))}
+ 
+-            {agents.length === 0 ? (
++            {agents.length === 0 && (
+               <div>
+                 Click the above button to restart. In the future, this will be a
+                 list of your deployed agents!
+               </div>
+-            ) : (
+-              ""
+             )}
+           </AnimatePresence>
+         </div>
+@@ -123,11 +121,11 @@ const DrawerItem = ({
+ }: DrawerItemProps) => {
+   return (
+     <div
+-      className={
+-        "flex cursor-pointer flex-row items-center rounded-md rounded-md p-2 hover:bg-white/5 " +
+-        (border ? "border-[1px] border-white/20" : "") +
+-        ` ${className || ""}`
+-      }
++      className={clsx(
++        "flex cursor-pointer flex-row items-center rounded-md rounded-md p-2 hover:bg-white/5",
++        border && "border-[1px] border-white/20",
++        `${className || ""}`
++      )}
+       onClick={onClick}
+     >
+       {icon}
+diff --git a/src/components/motions/expand.tsx b/src/components/motions/expand.tsx
+index 3d3f09fa01..e40569bbe8 100644
+--- a/src/components/motions/expand.tsx
++++ b/src/components/motions/expand.tsx
+@@ -4,13 +4,18 @@ import type { PropsWithChildren } from "react";
+ interface MotionProps extends PropsWithChildren {
+   className?: string;
+   delay?: number;
++  type?: "spring" | "tween";
+ }
+ 
+ const Expand = (props: MotionProps) => (
+   <motion.div
+     initial={{ scaleX: 0.8, scaleY: 0 }}
+     animate={{ scaleX: 1, scaleY: 1 }}
+-    transition={{ duration: 0.75, type: "spring", delay: props.delay ?? 0 }}
++    transition={{
++      duration: 0.75,
++      type: props.type ?? "spring",
++      delay: props.delay ?? 0,
++    }}
+     {...props}
+   >
+     {props.children}
+diff --git a/src/env/schema.mjs b/src/env/schema.mjs
+index 62923346a1..36f29789d7 100644
+--- a/src/env/schema.mjs
++++ b/src/env/schema.mjs
+@@ -1,6 +1,10 @@
+ // @ts-check
+ import { z } from "zod";
+ 
++const requiredForProduction = () => process.env.NODE_ENV === "production"
++    ? z.string().min(1).trim()
++    : z.string().min(1).trim().optional()
++
+ /**
+  * Specify your server-side environment variables schema here.
+  * This way you can ensure the app isn't built with invalid env vars.
+@@ -8,10 +12,7 @@ import { z } from "zod";
+ export const serverSchema = z.object({
+   DATABASE_URL: z.string().url(),
+   NODE_ENV: z.enum(["development", "test", "production"]),
+-  NEXTAUTH_SECRET:
+-    process.env.NODE_ENV === "production"
+-      ? z.string().min(1)
+-      : z.string().min(1).optional(),
++  NEXTAUTH_SECRET: requiredForProduction(),
+   NEXTAUTH_URL: z.preprocess(
+     // This makes Vercel deployments not fail if you don't set NEXTAUTH_URL
+     // Since NextAuth.js automatically uses the VERCEL_URL if present.
+@@ -19,8 +20,6 @@ export const serverSchema = z.object({
+     // VERCEL_URL doesn't include `https` so it cant be validated as a URL
+     process.env.VERCEL ? z.string() : z.string().url(),
+   ),
+-  DISCORD_CLIENT_ID: z.string(),
+-  DISCORD_CLIENT_SECRET: z.string(),
+   OPENAI_API_KEY: z.string()
+ });
+ 
+@@ -34,8 +33,6 @@ export const serverEnv = {
+   NODE_ENV: process.env.NODE_ENV,
+   NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET,
+   NEXTAUTH_URL: process.env.NEXTAUTH_URL,
+-  DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID,
+-  DISCORD_CLIENT_SECRET: process.env.DISCORD_CLIENT_SECRET,
+   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+ };
+ 
+diff --git a/src/server/auth.ts b/src/server/auth.ts
+index f127672792..20273588f7 100644
+--- a/src/server/auth.ts
++++ b/src/server/auth.ts
+@@ -4,9 +4,7 @@ import {
+   type NextAuthOptions,
+   type DefaultSession,
+ } from "next-auth";
+-import DiscordProvider from "next-auth/providers/discord";
+ import { PrismaAdapter } from "@next-auth/prisma-adapter";
+-import { env } from "../env/server.mjs";
+ import { prisma } from "./db";
+ 
+ /**
+@@ -47,10 +45,6 @@ export const authOptions: NextAuthOptions = {
+   },
+   adapter: PrismaAdapter(prisma),
+   providers: [
+-    DiscordProvider({
+-      clientId: env.DISCORD_CLIENT_ID,
+-      clientSecret: env.DISCORD_CLIENT_SECRET,
+-    }),
+     /**
+      * ...add more providers here
+      *

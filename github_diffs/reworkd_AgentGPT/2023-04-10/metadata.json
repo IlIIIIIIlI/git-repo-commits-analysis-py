@@ -1,0 +1,156 @@
+[
+  {
+    "sha": "81e261da4c3686285c59aa4641f9c74411f6e613",
+    "message": "⭐ Make API key optional",
+    "author": "Asim Shrestha",
+    "date": "2023-04-10T21:30:53",
+    "stats": {
+      "additions": 7,
+      "deletions": 5,
+      "total": 12,
+      "additions_size": null,
+      "deletions_size": null,
+      "total_size": null
+    }
+  },
+  {
+    "sha": "ece22be8cbf160f17ef108f61a038e4101aa1a53",
+    "message": "⭐ Make API key optional",
+    "author": "Asim Shrestha",
+    "date": "2023-04-10T21:26:03",
+    "stats": {
+      "additions": 11,
+      "deletions": 13,
+      "total": 24,
+      "additions_size": null,
+      "deletions_size": null,
+      "total_size": null
+    }
+  },
+  {
+    "sha": "719d90dda1a5679adc3c6ff374b508aa6d88a593",
+    "message": "⭐ Add discord link",
+    "author": "Asim Shrestha",
+    "date": "2023-04-10T20:16:37",
+    "stats": {
+      "additions": 17,
+      "deletions": 1,
+      "total": 18,
+      "additions_size": null,
+      "deletions_size": null,
+      "total_size": null
+    }
+  },
+  {
+    "sha": "46029524b135f48604c5d29b164f7dcec79aecc7",
+    "message": "Merge pull request #13 from reworkd/settings\n\nAbility to add your own API key",
+    "author": "Asim Shrestha",
+    "date": "2023-04-10T20:03:42",
+    "stats": {
+      "additions": 268,
+      "deletions": 103,
+      "total": 371,
+      "additions_size": "large",
+      "deletions_size": "medium",
+      "total_size": "large"
+    }
+  },
+  {
+    "sha": "576db8c7d5a33d0fb3fa771ce30be73732a91494",
+    "message": "⭐ Fix build issue",
+    "author": "Asim Shrestha",
+    "date": "2023-04-10T20:00:54",
+    "stats": {
+      "additions": 5,
+      "deletions": 5,
+      "total": 10,
+      "additions_size": null,
+      "deletions_size": null,
+      "total_size": null
+    }
+  },
+  {
+    "sha": "08cf9f6b72a802661b96934ad1823bb7b16584a4",
+    "message": "⭐ Allow for a custom API Key",
+    "author": "Asim Shrestha",
+    "date": "2023-04-10T19:53:04",
+    "stats": {
+      "additions": 80,
+      "deletions": 35,
+      "total": 115,
+      "additions_size": "small",
+      "deletions_size": null,
+      "total_size": "medium"
+    }
+  },
+  {
+    "sha": "7b3c302e0908990e40c149bc09250dabd17d258d",
+    "message": "🐛 Dialog changes",
+    "author": "Asim Shrestha",
+    "date": "2023-04-10T17:03:29",
+    "stats": {
+      "additions": 7,
+      "deletions": 0,
+      "total": 7,
+      "additions_size": null,
+      "deletions_size": null,
+      "total_size": null
+    }
+  },
+  {
+    "sha": "37181329460002b8350c4c2e16e4febcd1ad2bcb",
+    "message": "🐛 Dialog changes",
+    "author": "Asim Shrestha",
+    "date": "2023-04-10T17:03:12",
+    "stats": {
+      "additions": 181,
+      "deletions": 68,
+      "total": 249,
+      "additions_size": "medium",
+      "deletions_size": "small",
+      "total_size": "large"
+    }
+  },
+  {
+    "sha": "0c3d3d671b414e676a3b1d05d93d0a7eb79c625e",
+    "message": "🐛 Update loop count",
+    "author": "Asim Shrestha",
+    "date": "2023-04-10T04:23:26",
+    "stats": {
+      "additions": 1,
+      "deletions": 1,
+      "total": 2,
+      "additions_size": null,
+      "deletions_size": null,
+      "total_size": null
+    }
+  },
+  {
+    "sha": "9ff61686e43b657dd6f19ad0773c8a848712ae5c",
+    "message": ":page_facing_up: Create License",
+    "author": "Adam Watkins",
+    "date": "2023-04-10T03:45:00",
+    "stats": {
+      "additions": 674,
+      "deletions": 0,
+      "total": 674,
+      "additions_size": "large",
+      "deletions_size": null,
+      "total_size": "large"
+    }
+  },
+  {
+    "sha": "8a5f5dff45231553c7216284de549a19929b0945",
+    "message": "🐛 Update array parsing",
+    "author": "Asim Shrestha",
+    "date": "2023-04-10T03:32:26",
+    "stats": {
+      "additions": 26,
+      "deletions": 6,
+      "total": 32,
+      "additions_size": null,
+      "deletions_size": null,
+      "total_size": null
+    }
+  }
+]

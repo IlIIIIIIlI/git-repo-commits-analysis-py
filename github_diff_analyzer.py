@@ -1,3 +1,4 @@
+# github_diff_analyzer.py
 import json
 import logging
 import time
@@ -9,8 +10,7 @@ import requests
 from tqdm import tqdm
 
 from config import Settings
-from models import CommitInfo
-
+from models import CommitDiff, CommitStats
 
 class GitHubDiffAnalyzer:
     def __init__(self, settings: Settings):
@@ -52,7 +52,7 @@ class GitHubDiffAnalyzer:
             return None
 
     def _get_commit_stats(self, owner: str, repo: str, sha: str) -> Dict[str, int]:
-        """获取commit的统计信息"""
+        """Get commit statistics"""
         url = f"{self.base_url}/repos/{owner}/{repo}/commits/{sha}"
         try:
             response = requests.get(url, headers=self.headers)
@@ -68,7 +68,7 @@ class GitHubDiffAnalyzer:
             return {"additions": 0, "deletions": 0, "total": 0}
 
     def validate_token(self):
-        """验证 token 是否有效"""
+        """Verify whether the token is valid"""
         try:
             user_response = requests.get(
                 "https://api.github.com/user", headers=self.headers
@@ -78,7 +78,7 @@ class GitHubDiffAnalyzer:
             if user_response.status_code == 200:
                 self.logger.info("Successfully authenticated with GitHub")
 
-                # 检查仓库访问权限
+                # Check warehouse access permissions
                 owner, repo = self.settings.repositories_list[0]
                 repo_url = f"{self.base_url}/repos/{owner}/{repo}"
                 self.logger.debug(f"Checking repository access: {repo_url}")
@@ -108,7 +108,7 @@ class GitHubDiffAnalyzer:
             return False
 
     def check_rate_limit(self):
-        """检查 API 速率限制"""
+        """Check API rate limits"""
         try:
             response = requests.get(
                 "https://api.github.com/rate_limit", headers=self.headers
@@ -127,7 +127,7 @@ class GitHubDiffAnalyzer:
             return True
 
     def date_range(self, start_date: str, end_date: str) -> Generator[str, None, None]:
-        """生成日期范围"""
+        """Generate date range"""
         start = datetime.strptime(start_date, "%Y-%m-%d")
         end = datetime.strptime(end_date, "%Y-%m-%d")
 
@@ -138,8 +138,8 @@ class GitHubDiffAnalyzer:
 
     def get_repository_commits(
         self, owner: str, repo: str, date: str
-    ) -> List[CommitInfo]:
-        """获取某一天的所有commits"""
+    ) -> List[CommitDiff]:
+        """Get all commits on a certain day"""
         self.logger.info(f"Fetching commits for {owner}/{repo} on {date}")
         commits = []
         page = 1
@@ -165,15 +165,17 @@ class GitHubDiffAnalyzer:
                     break
 
                 for commit_data in page_commits:
-                    commit = CommitInfo(
-                        sha=commit_data["sha"],
-                        message=commit_data["commit"]["message"],
+                    stats = self._get_commit_stats(owner, repo, commit_data["sha"])
+                    commit = CommitDiff(
+                        id=commit_data["sha"],
+                        title=commit_data["commit"]["message"],
                         author=commit_data["commit"]["author"]["name"],
                         date=datetime.strptime(
                             commit_data["commit"]["author"]["date"],
                             "%Y-%m-%dT%H:%M:%SZ",
                         ),
-                        stats=self._get_commit_stats(owner, repo, commit_data["sha"]),
+                        stats=CommitStats(**stats),
+                        repository=f"{owner}/{repo}"
                     )
                     commits.append(commit)
 
@@ -187,7 +189,7 @@ class GitHubDiffAnalyzer:
         return commits
 
     def save_repository_diffs(self, owner: str, repo: str):
-        """保存仓库的diff信息"""
+        """Save the diff information of the warehouse"""
         repo_dir = self.settings.output_base_dir / f"{owner}_{repo}"
         repo_dir.mkdir(parents=True, exist_ok=True)
 
@@ -209,18 +211,18 @@ class GitHubDiffAnalyzer:
 
             commits_meta = []
             for commit in commits:
-                diff = self.get_commit_diff(owner, repo, commit.sha)
+                diff = self.get_commit_diff(owner, repo, commit.id)
                 if diff:
-                    diff_path = date_dir / f"{commit.sha}.diff"
+                    diff_path = date_dir / f"{commit.id}.diff"
                     diff_path.write_text(diff, encoding="utf-8")
 
                     commits_meta.append(
                         {
-                            "sha": commit.sha,
-                            "message": commit.message,
+                            "sha": commit.id,
+                            "message": commit.title,
                             "author": commit.author,
                             "date": commit.date.isoformat(),
-                            "stats": commit.stats,
+                            "stats": commit.stats.dict(),
                         }
                     )
 
@@ -233,7 +235,7 @@ class GitHubDiffAnalyzer:
                 self.logger.info(f"Processed {len(commits_meta)} commits for {date}")
 
     def analyze(self):
-        """分析指定的仓库"""
+        """Analyze the specified warehouse"""
         if not self.validate_token():
             self.logger.error(
                 "Token validation failed. Please check your token and permissions."
@@ -250,13 +252,3 @@ class GitHubDiffAnalyzer:
             self.logger.info(f"Starting analysis for {owner}/{repo}")
             self.save_repository_diffs(owner, repo)
             self.logger.info(f"Completed analysis for {owner}/{repo}")
-
-
-def main():
-    settings = Settings()
-    analyzer = GitHubDiffAnalyzer(settings)
-    analyzer.analyze()
-
-
-if __name__ == "__main__":
-    main()

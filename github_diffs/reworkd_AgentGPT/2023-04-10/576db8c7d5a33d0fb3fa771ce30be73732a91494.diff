@@ -1,0 +1,20 @@
+diff --git a/src/server/api/routers/chain.ts b/src/server/api/routers/chain.ts
+index 6003566224..5a17078d34 100644
+--- a/src/server/api/routers/chain.ts
++++ b/src/server/api/routers/chain.ts
+@@ -7,10 +7,10 @@ export const chainRouter = createTRPCRouter({
+   startAgent: publicProcedure
+     .input(z.object({ prompt: z.string() }))
+     .mutation(async ({ input }) => {
+-      const completion = (await startGoalAgent(input.prompt)) as {
+-        text: string;
+-      };
+-
+-      return { tasks: JSON.parse(completion.text) as string[] };
++      // const completion = (await startGoalAgent(input.prompt)) as {
++      //   text: string;
++      // };
++      //
++      // return { tasks: JSON.parse(completion.text) as string[] };
+     }),
+ });

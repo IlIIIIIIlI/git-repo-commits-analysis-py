@@ -1,0 +1,700 @@
+diff --git a/src/components/AutonomousAgent.ts b/src/components/AutonomousAgent.ts
+index 2e8f1dd699..997868a05e 100644
+--- a/src/components/AutonomousAgent.ts
++++ b/src/components/AutonomousAgent.ts
+@@ -5,6 +5,7 @@ class AutonomousAgent {
+   name: string;
+   goal: string;
+   tasks: string[] = [];
++  customApiKey: string;
+   isRunning = true;
+   sendMessage: (message: Message) => void;
+   shutdown: () => void;
+@@ -14,12 +15,14 @@ class AutonomousAgent {
+     name: string,
+     goal: string,
+     addMessage: (message: Message) => void,
+-    shutdown: () => void
++    shutdown: () => void,
++    customApiKey: string
+   ) {
+     this.name = name;
+     this.goal = goal;
+     this.sendMessage = addMessage;
+     this.shutdown = shutdown;
++    this.customApiKey = customApiKey;
+   }
+ 
+   async run() {
+@@ -36,7 +39,7 @@ class AutonomousAgent {
+     } catch (e) {
+       console.log(e);
+       this.sendErrorMessage(
+-        `ERROR retrieving initial tasks array. Please make your goal more clear or revise it such that it is within our model's policies to run. Shutting Down.`
++        `ERROR retrieving initial tasks array. Check your API key, make your goal more clear, or revise your goal such that it is within our model's policies to run. Shutting Down.`
+       );
+       this.shutdown();
+       return;
+@@ -49,6 +52,12 @@ class AutonomousAgent {
+     console.log(`Loop ${this.numLoops}`);
+     console.log(this.tasks);
+ 
++    if (!this.isRunning) {
++      this.sendManualShutdownMessage();
++      this.shutdown();
++      return;
++    }
++
+     if (this.tasks.length === 0) {
+       this.sendCompletedMessage();
+       this.shutdown();
+@@ -62,12 +71,6 @@ class AutonomousAgent {
+       return;
+     }
+ 
+-    if (!this.isRunning) {
+-      this.sendManualShutdownMessage();
+-      this.shutdown();
+-      return;
+-    }
+-
+     // Wait before starting
+     await new Promise((r) => setTimeout(r, 1000));
+ 
+@@ -110,7 +113,10 @@ class AutonomousAgent {
+   }
+ 
+   async getInitialTasks(): Promise<string[]> {
+-    const res = await axios.post(`/api/chain`, { goal: this.goal });
++    const res = await axios.post(`/api/chain`, {
++      customApiKey: this.customApiKey,
++      goal: this.goal,
++    });
+     // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access,@typescript-eslint/no-unsafe-argument
+     return res.data.tasks as string[];
+   }
+@@ -120,6 +126,7 @@ class AutonomousAgent {
+     result: string
+   ): Promise<string[]> {
+     const res = await axios.post(`/api/create`, {
++      customApiKey: this.customApiKey,
+       goal: this.goal,
+       tasks: this.tasks,
+       lastTask: currentTask,
+@@ -131,6 +138,7 @@ class AutonomousAgent {
+ 
+   async executeTask(task: string): Promise<string> {
+     const res = await axios.post(`/api/execute`, {
++      customApiKey: this.customApiKey,
+       goal: this.goal,
+       task: task,
+     });
+diff --git a/src/components/ChatWindow.tsx b/src/components/ChatWindow.tsx
+index 9cbe74f4ac..46f0d38d99 100644
+--- a/src/components/ChatWindow.tsx
++++ b/src/components/ChatWindow.tsx
+@@ -66,6 +66,13 @@ const ChatWindow = ({ messages, children, className }: ChatWindowProps) => {
+                   "> Create an agent by adding a name / goal, and hitting deploy!",
+               }}
+             />
++            <ChatMessage
++              message={{
++                type: "system",
++                value:
++                  "📢 Please first provide your own OpenAI API key via the settings tab!",
++              }}
++            />
+           </Expand>
+         ) : (
+           ""
+diff --git a/src/components/Dialog.tsx b/src/components/Dialog.tsx
+index a2c1967ac8..9b510477f0 100644
+--- a/src/components/Dialog.tsx
++++ b/src/components/Dialog.tsx
+@@ -1,30 +1,36 @@
+ import React from "react";
+ import Button from "./Button";
+-import { FaGithub, FaTwitter } from "react-icons/fa";
+ 
+ export default function Dialog({
+-  showModal,
+-  setShowModal,
++  header,
++  children,
++  isShown,
++  close,
++  footerButton,
+ }: {
+-  showModal: boolean;
+-  setShowModal: (showModal: boolean) => void;
++  header: React.ReactNode;
++  children: React.ReactNode;
++  isShown: boolean;
++  close: () => void;
++  footerButton?: React.ReactNode;
+ }) {
+   return (
+     <>
+-      {showModal ? (
++      {isShown ? (
+         <>
+           <div
+-            className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto overflow-x-hidden bg-black/70 p-3 font-mono text-white outline-none transition-all transition-all focus:outline-none"
+-            onClick={() => setShowModal(false)}
++            className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto overflow-x-hidden bg-black/70 p-3 font-mono text-white outline-none transition-all"
++            onClick={close}
+           >
+             <div className="relative mx-auto my-6 w-auto max-w-3xl rounded-lg border-2 border-zinc-600">
+               {/*content*/}
+-              <div className="relative z-50 flex w-full flex-col rounded-lg border-0 bg-[#3a3a3a] shadow-lg outline-none focus:outline-none">
++              <div
++                className="relative z-50 flex w-full flex-col rounded-lg border-0 bg-[#3a3a3a] shadow-lg outline-none focus:outline-none"
++                onClick={(e) => e.stopPropagation()} // Avoid closing the modal
++              >
+                 {/*header*/}
+                 <div className="flex items-start justify-between rounded-t border-b-2 border-solid border-white/20 p-5">
+-                  <h3 className="font-mono text-3xl font-semibold">
+-                    Welcome to AgentGPT 🤖
+-                  </h3>
++                  <h3 className="font-mono text-3xl font-semibold">{header}</h3>
+                   <button className="float-right ml-auto border-0 bg-transparent p-1 text-3xl font-semibold leading-none opacity-5 outline-none focus:outline-none">
+                     <span className="block h-6 w-6 bg-transparent text-2xl opacity-5 outline-none focus:outline-none">
+                       ×
+@@ -33,52 +39,17 @@ export default function Dialog({
+                 </div>
+                 {/*body*/}
+                 <div className="text-md relative my-3 flex-auto p-3 leading-relaxed">
+-                  <p>
+-                    <strong>AgentGPT</strong> allows you to configure and deploy
+-                    Autonomous AI agents. Name your own custom AI and have it
+-                    embark on any goal imaginable. It will attempt to reach the
+-                    goal by thinking of tasks to do, executing them, and
+-                    learning from the results 🚀.
+-                  </p>
+-                  <div>
+-                    <br />
+-                    This platform is currently in beta, we are currently working
+-                    on:
+-                    <ul className="ml-5 list-inside list-disc">
+-                      <li>Long term memory 🧠</li>
+-                      <li>Web browsing 🌐</li>
+-                      <li>Interaction with websites and people 👨‍👩‍👦</li>
+-                    </ul>
+-                    <p className="mt-2">Follow the journey below:</p>
+-                  </div>
+-                  <div className="mt-4 flex w-full items-center justify-center gap-5">
+-                    <div
+-                      className="cursor-pointer rounded-full bg-black/30 p-3 hover:bg-black/70"
+-                      onClick={() =>
+-                        window.open(
+-                          "https://twitter.com/asimdotshrestha/status/1644883727707959296",
+-                          "_blank"
+-                        )
+-                      }
+-                    >
+-                      <FaTwitter size={30} />
+-                    </div>
+-                    <div
+-                      className="cursor-pointer rounded-full bg-black/30 p-3 hover:bg-black/70"
+-                      onClick={() =>
+-                        window.open(
+-                          "https://github.com/reworkd/AgentGPT",
+-                          "_blank"
+-                        )
+-                      }
+-                    >
+-                      <FaGithub size={30} />
+-                    </div>
+-                  </div>
++                  {children}
+                 </div>
+                 {/*footer*/}
+-                <div className="flex items-center justify-end rounded-b border-t-2 border-solid border-white/20 p-2">
+-                  <Button onClick={() => setShowModal(false)}>Close</Button>
++                <div className="flex items-center justify-end gap-2 rounded-b border-t-2 border-solid border-white/20 p-2">
++                  <Button
++                    enabledClassName="bg-yellow-600 hover:bg-yellow-500"
++                    onClick={close}
++                  >
++                    Close
++                  </Button>
++                  {footerButton}
+                 </div>
+               </div>
+             </div>
+diff --git a/src/components/Drawer.tsx b/src/components/Drawer.tsx
+index a07506e3da..533e3979a0 100644
+--- a/src/components/Drawer.tsx
++++ b/src/components/Drawer.tsx
+@@ -1,6 +1,7 @@
+ import React, { useState } from "react";
+ import {
+   FaBars,
++  FaCog,
+   FaGithub,
+   FaQuestionCircle,
+   FaRobot,
+@@ -11,7 +12,13 @@ import FadeOut from "./motions/FadeOut";
+ import { AnimatePresence } from "framer-motion";
+ import clsx from "clsx";
+ 
+-const Drawer = ({ handleHelp }: { handleHelp: () => void }) => {
++const Drawer = ({
++  showHelp,
++  showSettings,
++}: {
++  showHelp: () => void;
++  showSettings: () => void;
++}) => {
+   const [showDrawer, setShowDrawer] = useState(false);
+   const [agents, setAgents] = React.useState<string[]>([]);
+ 
+@@ -38,7 +45,7 @@ const Drawer = ({ handleHelp }: { handleHelp: () => void }) => {
+         )}
+       >
+         <div className="flex flex-col gap-1 overflow-hidden">
+-          <div className="mb-2 flex items-center justify-center gap-2">
++          <div className="mb-2 flex justify-center gap-2">
+             <DrawerItem
+               className="flex-grow"
+               icon={<BiPlus />}
+@@ -79,8 +86,9 @@ const Drawer = ({ handleHelp }: { handleHelp: () => void }) => {
+           <DrawerItem
+             icon={<FaQuestionCircle />}
+             text="Help"
+-            onClick={handleHelp}
++            onClick={showHelp}
+           />
++          <DrawerItem icon={<FaCog />} text="Settings" onClick={showSettings} />
+           <DrawerItem
+             icon={<FaTwitter />}
+             text="Twitter"
+diff --git a/src/components/HelpDialog.tsx b/src/components/HelpDialog.tsx
+new file mode 100644
+index 0000000000..100aeac45d
+--- /dev/null
++++ b/src/components/HelpDialog.tsx
+@@ -0,0 +1,56 @@
++import React from "react";
++import { FaGithub, FaTwitter } from "react-icons/fa";
++import Dialog from "./Dialog";
++
++export default function HelpDialog({
++  show,
++  close,
++}: {
++  show: boolean;
++  close: () => void;
++}) {
++  return (
++    <Dialog header="Welcome to AgentGPT 🤖" isShown={show} close={close}>
++      <div className="text-md relative flex-auto p-2 leading-relaxed">
++        <p>
++          <strong>AgentGPT</strong> allows you to configure and deploy
++          Autonomous AI agents. Name your custom AI and have it embark on any
++          goal imaginable. It will attempt to reach the goal by thinking of
++          tasks to do, executing them, and learning from the results 🚀
++        </p>
++        <div>
++          <br />
++          This platform is currently in beta, we are currently working on:
++          <ul className="ml-5 list-inside list-disc">
++            <li>Long term memory 🧠</li>
++            <li>Web browsing 🌐</li>
++            <li>Interaction with websites and people 👨‍👩‍👦</li>
++          </ul>
++          <br />
++          <p className="mt-2">Follow the journey below:</p>
++        </div>
++        <div className="mt-4 flex w-full items-center justify-center gap-5">
++          <div
++            className="cursor-pointer rounded-full bg-black/30 p-3 hover:bg-black/70"
++            onClick={() =>
++              window.open(
++                "https://twitter.com/asimdotshrestha/status/1644883727707959296",
++                "_blank"
++              )
++            }
++          >
++            <FaTwitter size={30} />
++          </div>
++          <div
++            className="cursor-pointer rounded-full bg-black/30 p-3 hover:bg-black/70"
++            onClick={() =>
++              window.open("https://github.com/reworkd/AgentGPT", "_blank")
++            }
++          >
++            <FaGithub size={30} />
++          </div>
++        </div>
++      </div>
++    </Dialog>
++  );
++}
+diff --git a/src/components/Input.tsx b/src/components/Input.tsx
+index 9ce4f1f475..6062a13b1c 100644
+--- a/src/components/Input.tsx
++++ b/src/components/Input.tsx
+@@ -17,7 +17,7 @@ const Input = ({
+   disabled,
+ }: InputProps) => {
+   return (
+-    <div className="z-10 flex w-full items-center rounded-xl bg-[#3a3a3a] font-mono text-lg text-white/75 shadow-2xl">
++    <div className="z-10 flex w-full items-center rounded-xl bg-[#3a3a3a] font-mono text-lg text-white/75 shadow-xl">
+       {left && (
+         <div className="center flex items-center rounded-xl rounded-r-none border-[2px] border-r-0 border-white/10 px-5 py-3 text-lg font-semibold tracking-wider transition-all">
+           {left}
+diff --git a/src/components/SettingsDialog.tsx b/src/components/SettingsDialog.tsx
+new file mode 100644
+index 0000000000..a62a1036ad
+--- /dev/null
++++ b/src/components/SettingsDialog.tsx
+@@ -0,0 +1,67 @@
++import React from "react";
++import Button from "./Button";
++import { FaKey } from "react-icons/fa";
++import Dialog from "./Dialog";
++import Input from "./Input";
++
++export default function SettingsDialog({
++  show,
++  close,
++  customApiKey,
++  setCustomApiKey,
++}: {
++  show: boolean;
++  close: () => void;
++  customApiKey: string;
++  setCustomApiKey: (key: string) => void;
++}) {
++  const [key, setKey] = React.useState<string>(customApiKey);
++
++  const handleClose = () => {
++    setKey(customApiKey);
++    close();
++  };
++
++  const handleSave = () => {
++    setCustomApiKey(key);
++    close();
++  };
++
++  return (
++    <Dialog
++      header="Settings ⚙"
++      isShown={show}
++      close={handleClose}
++      footerButton={<Button onClick={handleSave}>Save</Button>}
++    >
++      <div className="text-md relative flex-auto p-2 leading-relaxed">
++        <p className="mb-3">
++          Welcome to AgentGPT! We&apos;re receiving traffic far higher than our
++          small team is able to provide for at the moment.
++        </p>
++        <p className="mb-3">
++          Because of this, we momentarily require that users utilize their own
++          OpenAI API key for AgentGPT. To do this, sign up for an OpenAI account
++          and visit the following{" "}
++          <a
++            href="https://platform.openai.com/account/api-keys"
++            className="text-blue-500"
++          >
++            link.
++          </a>
++        </p>
++        <Input
++          left={
++            <>
++              <FaKey />
++              <span className="ml-2">Key:</span>
++            </>
++          }
++          placeholder={"sk-..."}
++          value={key}
++          onChange={(e) => setKey(e.target.value)}
++        />
++      </div>
++    </Dialog>
++  );
++}
+diff --git a/src/pages/api/chain.ts b/src/pages/api/chain.ts
+index 2c7e284351..3729bd9832 100644
+--- a/src/pages/api/chain.ts
++++ b/src/pages/api/chain.ts
+@@ -1,8 +1,9 @@
+ import type { NextApiRequest, NextApiResponse } from "next";
+-import { extractArray, startGoalAgent } from "../../utils/chain";
++import { createModel, extractArray, startGoalAgent } from "../../utils/chain";
+ 
+ export interface ChainAPIRequest extends NextApiRequest {
+   body: {
++    customApiKey: string;
+     goal: string;
+   };
+ }
+@@ -15,7 +16,8 @@ export default async function handler(
+   req: ChainAPIRequest,
+   res: ChainAPIResponse
+ ) {
+-  const completion = await startGoalAgent(req.body.goal);
++  const model = createModel(req.body.customApiKey);
++  const completion = await startGoalAgent(model, req.body.goal);
+   console.log(completion.text);
+   // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+   res.status(200).json({ tasks: extractArray(completion.text) });
+diff --git a/src/pages/api/create.ts b/src/pages/api/create.ts
+index 6fa9d504e6..2164dbc668 100644
+--- a/src/pages/api/create.ts
++++ b/src/pages/api/create.ts
+@@ -1,9 +1,15 @@
+-import { executeCreateTaskAgent, extractArray } from "../../utils/chain";
+ import type { NextApiRequest } from "next";
+ import type { NextApiResponse } from "next";
+ 
++import {
++  createModel,
++  executeCreateTaskAgent,
++  extractArray,
++} from "../../utils/chain";
++
+ export interface CreateTaskAPIRequest extends NextApiRequest {
+   body: {
++    customApiKey: string;
+     goal: string;
+     tasks: string[];
+     lastTask: string;
+@@ -22,6 +28,7 @@ export default async function handler(
+   res: CreateTaskAPIResponse
+ ) {
+   const completion = await executeCreateTaskAgent(
++    createModel(req.body.customApiKey),
+     req.body.goal,
+     req.body.tasks,
+     req.body.lastTask,
+@@ -29,5 +36,5 @@ export default async function handler(
+   );
+   console.log(completion.text);
+   // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+-  res.status(200).json({ tasks: extractArray(completion.text) });
++  return res.status(200).json({ tasks: extractArray(completion.text) });
+ }
+diff --git a/src/pages/api/execute.ts b/src/pages/api/execute.ts
+index 343a52bf2a..abcf97a059 100644
+--- a/src/pages/api/execute.ts
++++ b/src/pages/api/execute.ts
+@@ -1,9 +1,10 @@
+-import { executeTaskAgent } from "../../utils/chain";
+ import type { NextApiRequest } from "next";
+ import type { NextApiResponse } from "next";
++import { createModel, executeTaskAgent } from "../../utils/chain";
+ 
+ export interface ExecuteAPIRequest extends NextApiRequest {
+   body: {
++    customApiKey: string;
+     goal: string;
+     task: string;
+   };
+@@ -19,7 +20,11 @@ export default async function handler(
+   req: ExecuteAPIRequest,
+   res: ExecuteAPIResponse
+ ) {
+-  const completion = await executeTaskAgent(req.body.goal, req.body.task);
++  const completion = await executeTaskAgent(
++    createModel(req.body.customApiKey),
++    req.body.goal,
++    req.body.task
++  );
+   console.log(completion.text);
+   res.status(200).json({ response: completion.text as string });
+ }
+diff --git a/src/pages/index.tsx b/src/pages/index.tsx
+index 0975d6f541..6ec2b7d261 100644
+--- a/src/pages/index.tsx
++++ b/src/pages/index.tsx
+@@ -12,55 +12,77 @@ import PopIn from "../components/motions/popin";
+ import { VscLoading } from "react-icons/vsc";
+ import AutonomousAgent from "../components/AutonomousAgent";
+ import Expand from "../components/motions/expand";
+-import Dialog from "../components/Dialog";
++import HelpDialog from "../components/HelpDialog";
++import SettingsDialog from "../components/SettingsDialog";
+ 
+ const Home: NextPage = () => {
+   const [name, setName] = React.useState<string>("");
+   const [goalInput, setGoalInput] = React.useState<string>("");
+   const [agent, setAgent] = React.useState<AutonomousAgent | null>(null);
+-  const [stoppingAgent, setStoppingAgent] = React.useState(false);
++  const [customApiKey, setCustomApiKey] = React.useState<string>("");
++  const [shouldAgentStop, setShouldAgentStop] = React.useState(false);
+ 
+   const [messages, setMessages] = React.useState<Message[]>([]);
+ 
+-  const [showModal, setShowModal] = React.useState(false);
++  const [showHelpDialog, setShowHelpDialog] = React.useState(false);
++  const [showSettingsDialog, setShowSettingsDialog] = React.useState(false);
+ 
+   useEffect(() => {
+-    const key = "agentgpt-modal-opened";
++    const key = "agentgpt-modal-opened-new";
+     const savedModalData = localStorage.getItem(key);
+-    if (savedModalData == null) {
++
++    // Momentarily always run
++    if (true) {
+       setTimeout(() => {
+-        setShowModal(true);
+-      }, 1700);
++        setShowSettingsDialog(true);
++      }, 1500);
+     }
+-    localStorage.setItem(key, JSON.stringify(true));
++
++    // localStorage.setItem(key, JSON.stringify(true));
+   }, []);
+ 
+   useEffect(() => {
+     if (agent == null) {
+-      setStoppingAgent(false);
++      setShouldAgentStop(false);
+     }
+   }, [agent]);
+ 
+   const handleNewGoal = () => {
+     const addMessage = (message: Message) =>
+       setMessages((prev) => [...prev, message]);
+-    const agent = new AutonomousAgent(name, goalInput, addMessage, () =>
+-      setAgent(null)
++    const agent = new AutonomousAgent(
++      name,
++      goalInput,
++      addMessage,
++      () => setAgent(null),
++      customApiKey
+     );
+     setAgent(agent);
+     agent.run().then(console.log).catch(console.error);
+   };
+ 
+   const handleStopAgent = () => {
+-    setStoppingAgent(true);
++    setShouldAgentStop(true);
+     agent?.stopAgent();
+   };
+ 
+   return (
+     <DefaultLayout>
+-      <Dialog showModal={showModal} setShowModal={setShowModal} />
++      <HelpDialog
++        show={showHelpDialog}
++        close={() => setShowHelpDialog(false)}
++      />
++      <SettingsDialog
++        customApiKey={customApiKey}
++        setCustomApiKey={setCustomApiKey}
++        show={showSettingsDialog}
++        close={() => setShowSettingsDialog(false)}
++      />
+       <main className="flex h-screen w-screen flex-row">
+-        <Drawer handleHelp={() => setShowModal(true)} />
++        <Drawer
++          showHelp={() => setShowHelpDialog(true)}
++          showSettings={() => setShowSettingsDialog(true)}
++        />
+         <div
+           id="content"
+           className="z-10 flex h-screen w-full items-center justify-center p-2 px-2 sm:px-4 md:px-10"
+@@ -124,7 +146,12 @@ const Home: NextPage = () => {
+ 
+             <div className="flex gap-2">
+               <Button
+-                disabled={agent != null || name === "" || goalInput === ""}
++                disabled={
++                  agent != null ||
++                  name === "" ||
++                  goalInput === "" ||
++                  customApiKey === ""
++                }
+                 onClick={handleNewGoal}
+                 className="mt-10"
+               >
+@@ -144,7 +171,7 @@ const Home: NextPage = () => {
+                 className="mt-10"
+                 enabledClassName={"bg-red-600 hover:bg-red-400"}
+               >
+-                {stoppingAgent ? (
++                {shouldAgentStop ? (
+                   <>
+                     <VscLoading className="animate-spin" size={20} />
+                     <span className="ml-2">Stopping</span>
+diff --git a/src/server/api/routers/chain.ts b/src/server/api/routers/chain.ts
+index 6003566224..5a17078d34 100644
+--- a/src/server/api/routers/chain.ts
++++ b/src/server/api/routers/chain.ts
+@@ -7,10 +7,10 @@ export const chainRouter = createTRPCRouter({
+   startAgent: publicProcedure
+     .input(z.object({ prompt: z.string() }))
+     .mutation(async ({ input }) => {
+-      const completion = (await startGoalAgent(input.prompt)) as {
+-        text: string;
+-      };
+-
+-      return { tasks: JSON.parse(completion.text) as string[] };
++      // const completion = (await startGoalAgent(input.prompt)) as {
++      //   text: string;
++      // };
++      //
++      // return { tasks: JSON.parse(completion.text) as string[] };
+     }),
+ });
+diff --git a/src/utils/chain.ts b/src/utils/chain.ts
+index 6b6f55b298..f63fa68fa9 100644
+--- a/src/utils/chain.ts
++++ b/src/utils/chain.ts
+@@ -2,18 +2,20 @@ import { OpenAI } from "langchain";
+ import { PromptTemplate } from "langchain/prompts";
+ import { LLMChain } from "langchain/chains";
+ 
+-const model = new OpenAI({
+-  openAIApiKey: process.env.OPENAI_API_KEY,
+-  temperature: 0.9,
+-  modelName: "gpt-3.5-turbo",
+-});
++export const createModel = (customApiKey: string) =>
++  new OpenAI({
++    openAIApiKey: customApiKey,
++    temperature: 0.9,
++    modelName: "gpt-3.5-turbo",
++    maxTokens: 500,
++  });
+ 
+ const startGoalPrompt = new PromptTemplate({
+   template:
+     "You are an autonomous task creation AI called AgentGPT. You have the following objective `{goal}`. Create a list of zero to three tasks to be completed by your AI system such that your goal is more closely reached or completely reached. Return the response as an array of strings that can be used in JSON.parse()",
+   inputVariables: ["goal"],
+ });
+-export const startGoalAgent = async (goal: string) => {
++export const startGoalAgent = async (model: OpenAI, goal: string) => {
+   return await new LLMChain({ llm: model, prompt: startGoalPrompt }).call({
+     goal,
+   });
+@@ -24,7 +26,11 @@ const executeTaskPrompt = new PromptTemplate({
+     "You are an autonomous task execution AI called AgentGPT. You have the following objective `{goal}`. You have the following tasks `{task}`. Execute the task and return the response as a string.",
+   inputVariables: ["goal", "task"],
+ });
+-export const executeTaskAgent = async (goal: string, task: string) => {
++export const executeTaskAgent = async (
++  model: OpenAI,
++  goal: string,
++  task: string
++) => {
+   return await new LLMChain({ llm: model, prompt: executeTaskPrompt }).call({
+     goal,
+     task,
+@@ -37,6 +43,7 @@ const createTaskPrompt = new PromptTemplate({
+   inputVariables: ["goal", "tasks", "lastTask", "result"],
+ });
+ export const executeCreateTaskAgent = async (
++  model: OpenAI,
+   goal: string,
+   tasks: string[],
+   lastTask: string,

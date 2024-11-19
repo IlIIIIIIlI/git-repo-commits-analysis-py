@@ -1,0 +1,29 @@
+diff --git a/src/components/Dialog.tsx b/src/components/Dialog.tsx
+index 5ea4da45d8..a2c1967ac8 100644
+--- a/src/components/Dialog.tsx
++++ b/src/components/Dialog.tsx
+@@ -56,7 +56,7 @@ export default function Dialog({
+                       className="cursor-pointer rounded-full bg-black/30 p-3 hover:bg-black/70"
+                       onClick={() =>
+                         window.open(
+-                          "https://twitter.com/asimdotshrestha",
++                          "https://twitter.com/asimdotshrestha/status/1644883727707959296",
+                           "_blank"
+                         )
+                       }
+diff --git a/src/components/Drawer.tsx b/src/components/Drawer.tsx
+index 007eb2e9d6..4f6fc360ba 100644
+--- a/src/components/Drawer.tsx
++++ b/src/components/Drawer.tsx
+@@ -87,7 +87,10 @@ const Drawer = ({ handleHelp }: { handleHelp: () => void }) => {
+             icon={<FaTwitter />}
+             text="Twitter"
+             onClick={() =>
+-              window.open("https://twitter.com/asimdotshrestha", "_blank")
++              window.open(
++                "https://twitter.com/asimdotshrestha/status/1644883727707959296",
++                "_blank"
++              )
+             }
+           />
+           <DrawerItem

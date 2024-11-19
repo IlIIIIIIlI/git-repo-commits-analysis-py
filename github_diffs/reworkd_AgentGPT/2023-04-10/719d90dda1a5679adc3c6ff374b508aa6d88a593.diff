@@ -1,0 +1,52 @@
+diff --git a/src/components/Drawer.tsx b/src/components/Drawer.tsx
+index 533e3979a0..50f76fe9cd 100644
+--- a/src/components/Drawer.tsx
++++ b/src/components/Drawer.tsx
+@@ -2,6 +2,7 @@ import React, { useState } from "react";
+ import {
+   FaBars,
+   FaCog,
++  FaDiscord,
+   FaGithub,
+   FaQuestionCircle,
+   FaRobot,
+@@ -89,6 +90,13 @@ const Drawer = ({
+             onClick={showHelp}
+           />
+           <DrawerItem icon={<FaCog />} text="Settings" onClick={showSettings} />
++          <DrawerItem
++            icon={<FaDiscord />}
++            text="Discord"
++            onClick={() =>
++              window.open("https://discord.gg/jdSBAnmdnY", "_blank")
++            }
++          />
+           <DrawerItem
+             icon={<FaTwitter />}
+             text="Twitter"
+diff --git a/src/components/HelpDialog.tsx b/src/components/HelpDialog.tsx
+index 100aeac45d..491bcb11b0 100644
+--- a/src/components/HelpDialog.tsx
++++ b/src/components/HelpDialog.tsx
+@@ -1,5 +1,5 @@
+ import React from "react";
+-import { FaGithub, FaTwitter } from "react-icons/fa";
++import { FaDiscord, FaGithub, FaTwitter } from "react-icons/fa";
+ import Dialog from "./Dialog";
+ 
+ export default function HelpDialog({
+@@ -30,6 +30,14 @@ export default function HelpDialog({
+           <p className="mt-2">Follow the journey below:</p>
+         </div>
+         <div className="mt-4 flex w-full items-center justify-center gap-5">
++          <div
++            className="cursor-pointer rounded-full bg-black/30 p-3 hover:bg-black/70"
++            onClick={() =>
++              window.open("https://discord.gg/jdSBAnmdnY", "_blank")
++            }
++          >
++            <FaDiscord size={30} />
++          </div>
+           <div
+             className="cursor-pointer rounded-full bg-black/30 p-3 hover:bg-black/70"
+             onClick={() =>
