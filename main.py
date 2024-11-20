@@ -33,6 +33,42 @@ report_generator = ReportGenerator()
 commit_storage: List[CommitDiff] = []
 analysis_tasks: Dict[str, AnalysisTask] = {}
 
+
+class Config:
+    BASE_DIR = Path.cwd()
+    REPORTS_BASE_DIR = BASE_DIR / "reports"
+    DIFFS_BASE_DIR = BASE_DIR / "github_diffs"
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize necessary directories and load existing data"""
+    print(f"Current working directory: {Config.BASE_DIR}")
+    print("Initializing directories...")
+    
+    # Create necessary directories
+    Config.REPORTS_BASE_DIR.mkdir(exist_ok=True)
+    Config.DIFFS_BASE_DIR.mkdir(exist_ok=True)
+    
+    print(f"Reports directory: {Config.REPORTS_BASE_DIR}")
+    print(f"Diffs directory: {Config.DIFFS_BASE_DIR}")
+    
+    # Load commits
+    reload_commits()
+    
+    # Print directory structure
+    print("\nCurrent reports structure:")
+    for repo_dir in Config.REPORTS_BASE_DIR.glob("*"):
+        if repo_dir.is_dir():
+            repo_name = repo_dir.name.replace("_", "/")
+            print(f"\nRepository: {repo_name}")
+            for date_dir in repo_dir.glob("*"):
+                if date_dir.is_dir():
+                    json_files = list(date_dir.glob("*.json"))
+                    print(f"  {date_dir.name}: {len(json_files)} reports")
+                    for json_file in json_files:
+                        print(f"    - {json_file.name}")
+
 def reload_commits():
     """Reload all commits from filesystem"""
     global commit_storage
@@ -154,41 +190,6 @@ async def run_analysis(task_id: str, repositories: str, start_date: str, end_dat
         task.status = AnalysisStatus.FAILED
         task.error = str(e)
         print(f"Analysis failed: {str(e)}")
-
-class Config:
-    BASE_DIR = Path.cwd()  # 获取当前工作目录
-    REPORTS_BASE_DIR = BASE_DIR / "reports"
-    DIFFS_BASE_DIR = BASE_DIR / "github_diffs"
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize necessary directories and load existing data"""
-    print(f"Current working directory: {Config.BASE_DIR}")
-    print("Initializing directories...")
-    
-    # Create necessary directories
-    Config.REPORTS_BASE_DIR.mkdir(exist_ok=True)
-    Config.DIFFS_BASE_DIR.mkdir(exist_ok=True)
-    
-    print(f"Reports directory: {Config.REPORTS_BASE_DIR}")
-    print(f"Diffs directory: {Config.DIFFS_BASE_DIR}")
-    
-    # Load commits
-    reload_commits()
-    
-    # Print directory structure
-    print("\nCurrent reports structure:")
-    for repo_dir in Config.REPORTS_BASE_DIR.glob("*"):
-        if repo_dir.is_dir():
-            repo_name = repo_dir.name.replace("_", "/")
-            print(f"\nRepository: {repo_name}")
-            for date_dir in repo_dir.glob("*"):
-                if date_dir.is_dir():
-                    json_files = list(date_dir.glob("*.json"))
-                    print(f"  {date_dir.name}: {len(json_files)} reports")
-                    for json_file in json_files:
-                        print(f"    - {json_file.name}")
 
 
 @app.post("/analyze", response_model=Dict, tags=["analysis"])

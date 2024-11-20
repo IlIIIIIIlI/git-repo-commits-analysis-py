@@ -14,20 +14,51 @@ from report_models import CommitReport
 
 load_dotenv()
 
-REPORT_PROMPT = """# Title Format
+REPORT_PROMPT = """
+You are an expert developer. You know how a commit is valued, what are some key points on tech side needs to be emphasis.
+
+You should generate the following format.
+# Title
 [{project_name}] Daily Iteration ({date}) - {focus}
 
-## 💄 Key Code Changes
-```diff
-{diff}
-```
+## 💄 Key Code Changes, {diff}
+ ⁠diff
+// Show the most important code changes
+•⁠  ⁠Old code
++ New code  // Add brief inline comments for key changes
+
 
 ## 🔍 Technical Highlights
-{technical_highlights}
+- List 3-5 key technical elements
+- Focus on frameworks/libraries used
+- Highlight architectural decisions
+- Note performance improvements
 
 ## 📝 Context
-{context}
+Brief paragraph explaining:
+- Part of which larger changes
+- Related commits
+- Overall impact
+- Evolution path
+
+Guidelines:
+1. Keep it focused on one main change
+2. Show real code snippets
+3. Add inline comments for technical details
+4. Connect to broader development context
+5. Use emojis for section clarity
+6. Keep explanation under 100 words total
+7. Highlight practical technical implementation
+8. Note any best practices or patterns used
+
+
+the total answer you generate should not more than 70 words. Strictly follow this requirements.
 """
+
+class Config:
+    BASE_DIR = Path.cwd()
+    REPORTS_BASE_DIR = BASE_DIR / "reports"
+    DIFFS_BASE_DIR = BASE_DIR / "github_diffs"
 
 class ReportGenerator:
     def __init__(self):
@@ -46,8 +77,6 @@ class ReportGenerator:
             date=date,
             focus=focus,
             diff=diff_content,
-            technical_highlights="[To be generated]",
-            context="[To be generated]"
         )
 
     async def generate_report(self, commit_data: Dict, diff_content: str, show_progress: bool = False) -> CommitReport:
@@ -93,10 +122,10 @@ class ReportGenerator:
                     response = self.client.chat.completions.create(
                         model="gpt-4-1106-preview",
                         messages=[
-                            {"role": "system", "content": "You are a technical writer specializing in creating detailed commit analysis reports. Focus on technical details and practical implementation."},
+                            {"role": "system", "content": "You are a technical writer specializing in creating detailed commit analysis reports. Focus on technical details and practical implementation. Remember your answer should not exceed a strictly word limit of 70."},
                             {"role": "user", "content": prompt}
                         ],
-                        temperature=0.7
+                        temperature=0.5
                     )
                     
                     report_content = response.choices[0].message.content
